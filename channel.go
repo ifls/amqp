@@ -65,8 +65,8 @@ type Channel struct {
 	// Selects on any errors from shutdown during RPC
 	errors chan *Error
 
-	// State machine that manages frame order, must only be mutated by the connection
-	recv func(*Channel, frame) error
+	// State machine that manages frame order, must only be mutated变化 by the connection
+	recv func(*Channel, frame) error   //接收从服务器发来的帧
 
 	// Current state for frame re-assembly, only mutated from recv
 	message messageWithContent

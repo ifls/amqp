@@ -81,15 +81,15 @@ type Connection struct {
 	sendM      sync.Mutex // conn writer mutex
 	m          sync.Mutex // struct field mutex
 
-	conn io.ReadWriteCloser
+	conn io.ReadWriteCloser		//tcp 网络连接
 
 	rpc       chan message
 	writer    *writer
 	sends     chan time.Time     // timestamps of each frame sent
-	deadlines chan readDeadliner // heartbeater updates read deadlines
+	deadlines chan readDeadliner // 读到数据时用于重置 deadline heartbeater updates read deadlines
 
 	allocator *allocator // id generator valid after openTune
-	channels  map[uint16]*Channel
+	channels  map[uint16]*Channel		// 多 channel 复用
 
 	noNotify bool // true when we will never notify again
 	closes   []chan *Error
@@ -112,6 +112,7 @@ type readDeadliner interface {
 }
 
 // DefaultDial establishes a connection when config.Dial is not provided
+// 默认拨号方式
 func DefaultDial(connectionTimeout time.Duration) func(network, addr string) (net.Conn, error) {
 	return func(network, addr string) (net.Conn, error) {
 		conn, err := net.DialTimeout(network, addr, connectionTimeout)
@@ -185,6 +186,7 @@ func DialConfig(url string, config Config) (*Connection, error) {
 		dialer = DefaultDial(defaultConnectionTimeout)
 	}
 
+	//tcp
 	conn, err = dialer("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -230,6 +232,7 @@ func Open(conn io.ReadWriteCloser, config Config) (*Connection, error) {
 		errors:    make(chan *Error, 1),
 		deadlines: make(chan readDeadliner, 1),
 	}
+	//读取数据
 	go c.reader(conn)
 	return c, c.open(config)
 }
@@ -319,6 +322,7 @@ After returning from this call, all resources associated with this connection,
 including the underlying io, Channels, Notify listeners and Channel consumers
 will also be closed.
 */
+// 关闭连接接口
 func (c *Connection) Close() error {
 	if c.IsClosed() {
 		return ErrClosed
@@ -383,6 +387,7 @@ func (c *Connection) send(f frame) error {
 	return err
 }
 
+//关闭连接
 func (c *Connection) shutdown(err *Error) {
 	atomic.StoreInt32(&c.closed, 1)
 
@@ -439,7 +444,7 @@ func (c *Connection) demux(f frame) {
 
 func (c *Connection) dispatch0(f frame) {
 	switch mf := f.(type) {
-	case *methodFrame:
+	case *methodFrame:	//方法帧
 		switch m := mf.Method.(type) {
 		case *connectionClose:
 			// Send immediately as shutdown will close our side of the writer.
@@ -460,10 +465,11 @@ func (c *Connection) dispatch0(f frame) {
 		default:
 			c.rpc <- m
 		}
-	case *heartbeatFrame:
+	case *heartbeatFrame:	//心跳帧
 		// kthx - all reads reset our deadline.  so we can drop this
 	default:
 		// lolwat - channel0 only responds to methods and heartbeats
+		// 发生错误关闭
 		c.closeWith(ErrUnexpectedFrame)
 	}
 }
@@ -474,8 +480,10 @@ func (c *Connection) dispatchN(f frame) {
 	c.m.Unlock()
 
 	if channel != nil {
+		//分发到 channel 里
 		channel.recv(channel, f)
 	} else {
+		//一个不存在的 channel
 		c.dispatchClosed(f)
 	}
 }
@@ -518,6 +526,7 @@ func (c *Connection) reader(r io.Reader) {
 	conn, haveDeadliner := r.(readDeadliner)
 
 	for {
+		//读取一个帧
 		frame, err := frames.ReadFrame()
 
 		if err != nil {
@@ -525,6 +534,7 @@ func (c *Connection) reader(r io.Reader) {
 			return
 		}
 
+		//多路复用
 		c.demux(frame)
 
 		if haveDeadliner {
@@ -567,7 +577,7 @@ func (c *Connection) heartbeater(interval time.Duration, done chan *Error) {
 				}
 			}
 
-		case conn := <-c.deadlines:
+		case conn := <-c.deadlines:		//读到了一次数据, 重置 deadline
 			// When reading, reset our side of the deadline, if we've negotiated one with
 			// a deadline that covers at least 2 server heartbeats
 			if interval > 0 {
@@ -606,6 +616,7 @@ func (c *Connection) allocateChannel() (*Channel, error) {
 	}
 
 	ch := newChannel(c, uint16(id))
+	//保存打开的 channel
 	c.channels[uint16(id)] = ch
 
 	return ch, nil

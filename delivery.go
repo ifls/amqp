@@ -22,25 +22,27 @@ type Acknowledger interface {
 	Reject(tag uint64, requeue bool) error
 }
 
-// Delivery captures the fields for a previously delivered message resident in
-// a queue to be delivered by the server to a consumer from Channel.Consume or
-// Channel.Get.
+// Delivery captures the fields for a previously delivered message resident in 居住
+// a queue to be delivered (by the server) to a consumer from 方法(Channel.Consume or Channel.Get).
 type Delivery struct {
 	Acknowledger Acknowledger // the channel from which this delivery arrived
 
-	Headers Table // Application or header exchange table
+	Headers Table // Application or header exchange table map[string]interface{}
 
 	// Properties
 	ContentType     string    // MIME content type
 	ContentEncoding string    // MIME content encoding
-	DeliveryMode    uint8     // queue implementation use - non-persistent (1) or persistent (2)
-	Priority        uint8     // queue implementation use - 0 to 9
+
+	DeliveryMode    uint8     // 是否持久化 queue implementation use - non-persistent (1) or persistent (2)
+	Priority        uint8     // 优先级 queue implementation use - 0 to 9
+
 	CorrelationId   string    // application use - correlation identifier
 	ReplyTo         string    // application use - address to reply to (ex: RPC)
-	Expiration      string    // implementation use - message expiration spec
-	MessageId       string    // application use - message identifier
-	Timestamp       time.Time // application use - message timestamp
-	Type            string    // application use - message type name
+
+	Expiration      string    // 过期时间 implementation use - message expiration spec
+	MessageId       string    // application use - message identifier标识符
+	Timestamp       time.Time // application use - message timestamp时间戳
+	Type            string    // application use - message type name 类型
 	UserId          string    // application use - creating user - should be authenticated user
 	AppId           string    // application use - creating application id
 

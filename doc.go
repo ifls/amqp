@@ -6,39 +6,34 @@
 /*
 Package amqp is an AMQP 0.9.1 client with RabbitMQ extensions
 
-Understand the AMQP 0.9.1 messaging model by reviewing these links first. Much
-of the terminology in this library directly relates to AMQP concepts.
+Understand the AMQP 0.9.1 messaging model by reviewing these links first.
+Much of the terminology术语 in this library directly relates to AMQP concepts.
 
   Resources
 
-  http://www.rabbitmq.com/tutorials/amqp-concepts.html
-  http://www.rabbitmq.com/getstarted.html
-  http://www.rabbitmq.com/amqp-0-9-1-reference.html
+  TODO http://www.rabbitmq.com/tutorials/amqp-concepts.html
+  TODO http://www.rabbitmq.com/getstarted.html
+  TODO http://www.rabbitmq.com/amqp-0-9-1-reference.html
 
 Design
 
-Most other broker clients publish to queues, but in AMQP, clients publish
-Exchanges instead.  AMQP is programmable, meaning that both the producers and
-consumers agree on the configuration of the broker, instead of requiring an
-operator or system configuration that declares the logical topology in the
-broker.  The routing between producers and consumer queues is via Bindings.
-These bindings form the logical topology of the broker.
+Most other broker clients publish to queues, but in AMQP, clients publish Exchanges instead. 其他都是发队列, amqp 是发交换机
+AMQP is programmable, meaning that both the producers and consumers agree on the configuration of the broker, 生产者和消费者约定配置
+instead of requiring an operator操作员 or system configuration系统配置 that declares the logical topology 逻辑结构 in the broker.
+The routing between producers and consumer queues is via Bindings. 路由由绑定决定
+These bindings form the logical topology of the broker. 这些绑定形成了代理间的逻辑拓扑
 
-In this library, a message sent from publisher is called a "Publishing" and a
-message received to a consumer is called a "Delivery".  The fields of
-Publishings and Deliveries are close but not exact mappings to the underlying
-wire format to maintain stronger types.  Many other libraries will combine
-message properties with message headers.  In this library, the message well
-known properties are strongly typed fields on the Publishings and Deliveries,
+In this library, a message sent from publisher is called a "Publishing" and a message received to a consumer is called a "Delivery".
+The fields of Publishings and Deliveries are close接近 but not exact mappings to the underlying wire format to maintain stronger types.
+Many other libraries will combine message properties with message headers.
+In this library, the message well known properties are strongly typed fields on the Publishings and Deliveries,
 whereas the user defined headers are in the Headers field.
 
-The method naming closely matches the protocol's method name with positional
-parameters mapping to named protocol message fields.  The motivation here is to
-present a comprehensive view over all possible interactions with the server.
+The method naming closely matches the protocol's method name with positional parameters mapping to named protocol message fields.
+The motivation here is to present a comprehensive view over all possible interactions with the server.
 
-Generally, methods that map to protocol methods of the "basic" class will be
-elided in this interface, and "select" methods of various channel mode selectors
-will be elided for example Channel.Confirm and Channel.Tx.
+Generally, methods that map to protocol methods of the "basic" class will be elided省略 in this interface,
+and "select" methods of various channel mode selectors will be elided for example Channel.Confirm and Channel.Tx.
 
 The library is intentionally designed to be synchronous, where responses for
 each protocol message are required to be received in an RPC manner.  Some
@@ -92,15 +87,15 @@ prior to calling Channel.Publish or Channel.Consume.
 
 SSL/TLS - Secure connections
 
-When Dial encounters an amqps:// scheme, it will use the zero value of a
-tls.Config.  This will only perform server certificate and host verification.
+When Dial encounters an amqps:// scheme, it will use the zero value零值 of a tls.Config.
+This will only perform server certificate and host verification.
 
 Use DialTLS when you wish to provide a client certificate (recommended),
 include a private certificate authority's certificate in the cert chain for
 server validity, or run insecure by not verifying the server certificate dial
-your own connection.  DialTLS will use the provided tls.Config when it
-encounters an amqps:// scheme and will dial a plain connection when it
-encounters an amqp:// scheme.
+your own connection.
+DialTLS will use the provided tls.Config when it encounters an amqps:// scheme
+and will dial a plain connection when it encounters an amqp:// scheme.
 
 SSL/TLS in RabbitMQ is documented here: http://www.rabbitmq.com/ssl.html
 
