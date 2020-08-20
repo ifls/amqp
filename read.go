@@ -9,7 +9,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"time"
 )
 
@@ -43,6 +45,76 @@ In realistic implementations where performance is a concern, we would use
 
 “gathering reads” to avoid doing three separate system calls to read a frame.
 */
+
+type FakerReader struct {
+	innerReader io.Reader
+}
+
+func (f *FakerReader) Read(p []byte) (n int, err error) {
+	// log.Printf("read<- `%s` %+v", p, p)
+
+	fakerBytes := make([]byte, len(p), cap(p))
+	n, err = f.innerReader.Read(fakerBytes)
+	copy(p, fakerBytes)
+	printBytes("read<-", fakerBytes)
+	parseRead(fakerBytes)
+	return
+}
+
+func parseRead(p []byte) error {
+	headerLength := 7
+	buf := bytes.NewBuffer(p)
+	if len(p) < headerLength {
+		return fmt.Errorf("parseRead short header")
+	}
+
+	typ := byte(0)
+	err := binary.Read(buf, binary.BigEndian, &typ)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var channelID uint16
+	err = binary.Read(buf, binary.BigEndian, &channelID)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var bodyLength int
+	length := uint32(0)
+	err = binary.Read(buf, binary.BigEndian, &length)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bodyLength = int(length)
+	log.Printf("parseRead<- header type=%d, channelID=%d, length=%d\n", typ, channelID, bodyLength)
+
+	switch typ {
+	case frameBody:
+		var bf bodyFrame
+		bf.ChannelId = channelID
+		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
+		log.Printf("parseRead bodyFrame = %+v\n", bf)
+	case frameHeader:
+		var bf headerFrame
+		bf.ChannelId = channelID
+		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
+		log.Printf("parseRead headerFrame = %+v\n", bf)
+	case frameMethod:
+		var bf methodFrame
+		bf.ChannelId = channelID
+		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
+		log.Printf("parseRead methodFrame = %+v\n", bf)
+	case frameHeartbeat:
+		var bf heartbeatFrame
+		bf.ChannelId = channelID
+		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
+		log.Printf("parseRead heartbeatFrame = %+v\n", bf)
+	}
+
+	return nil
+}
+
 func (r *reader) ReadFrame() (frame frame, err error) {
 	var scratch [7]byte
 

@@ -2,6 +2,7 @@ package amqp
 
 import "sync"
 
+// 封装确认逻辑, 与consumer对象相对
 // confirms resequences and notifies one or multiple publisher confirmation listeners
 type confirms struct {
 	m         sync.Mutex
@@ -47,6 +48,7 @@ func (c *confirms) confirm(confirmation Confirmation) {
 }
 
 // resequence confirms any out of order delivered confirmations
+// 把之前的都确认掉
 func (c *confirms) resequence() {
 	for c.expecting <= c.published {
 		sequenced, found := c.sequencer[c.expecting]
@@ -65,12 +67,15 @@ func (c *confirms) One(confirmed Confirmation) {
 	if c.expecting == confirmed.DeliveryTag {
 		c.confirm(confirmed)
 	} else {
+		// 标记确认
 		c.sequencer[confirmed.DeliveryTag] = confirmed
 	}
+
 	c.resequence()
 }
 
 // multiple confirms all publishings up until the delivery tag
+// 之前的都确认掉
 func (c *confirms) Multiple(confirmed Confirmation) {
 	c.m.Lock()
 	defer c.m.Unlock()

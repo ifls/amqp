@@ -10,18 +10,80 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"math"
 	"time"
 )
 
+func printBytes(prefix string, p []byte) {
+	if prefix == "read<-" {
+		p = trimBytes(p)
+	}
+	s := fmt.Sprintf(prefix+"(%d) [", len(p))
+	for i := range p {
+		s += fmt.Sprintf("%02X ", p[i])
+	}
+	if len(p) > 0 {
+		s = s[:len(s)-1] + "]"
+	}
+	log.Printf(s)
+}
+
+func trimBytes(p []byte) []byte {
+	i := len(p) - 1
+	for ; i >= 0; i-- {
+		if p[i] != 0 {
+			break
+		}
+	}
+	return p[:i+1]
+}
+
+type FakerWriter struct {
+	innerWriter io.Writer
+}
+
+func (f *FakerWriter) Write(p []byte) (n int, err error) {
+	// if true || string(p) == "sss" {
+	// 	debug.PrintStack()
+	// }
+	// log.Printf("send->`%s`\t%X", p, p)
+
+	n, err = f.innerWriter.Write(p)
+	fakerBytes := make([]byte, len(p))
+	copy(fakerBytes, p)
+	printBytes("send->", fakerBytes)
+	return
+}
+
+type FakerBufWriter struct {
+	*bufio.Writer
+}
+
+// 会产生死循环?
+// func (b *FakerBufWriter) Flush() error {
+// 	return b.Flush()
+// }
+//
+// func (b *FakerBufWriter) Write(p []byte) (nn int, err error) {
+// 	nn, err = b.Write(p)
+// 	return
+// }
+
+// 写到buf, 刷新buf到内核缓冲区
 func (w *writer) WriteFrame(frame frame) (err error) {
-	if err = frame.write(w.w); err != nil {
+	fw := &FakerWriter{w.w}
+
+	if err = frame.write(fw); err != nil {
 		return
 	}
 
+	// 这是个struct, 不是接口
 	if buf, ok := w.w.(*bufio.Writer); ok {
-		err = buf.Flush()
+		fbw := &FakerBufWriter{buf}
+		err = fbw.Flush()
 	}
 
 	return
@@ -211,14 +273,15 @@ func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) (err err
 	end := []byte{frameEnd}
 	size := uint(len(payload))
 
+	// head 7B type1B+channel2B+length4B 大端序 网络序
 	_, err = w.Write([]byte{
-		byte(typ),
+		byte(typ), // type 1B
 		byte((channel & 0xff00) >> 8),
-		byte((channel & 0x00ff) >> 0),
+		byte((channel & 0x00ff) >> 0), // channel 2B
 		byte((size & 0xff000000) >> 24),
 		byte((size & 0x00ff0000) >> 16),
 		byte((size & 0x0000ff00) >> 8),
-		byte((size & 0x000000ff) >> 0),
+		byte((size & 0x000000ff) >> 0), // length 4B
 	})
 
 	if err != nil {
@@ -229,6 +292,7 @@ func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) (err err
 		return
 	}
 
+	// 补上ce
 	if _, err = w.Write(end); err != nil {
 		return
 	}

@@ -9,7 +9,7 @@ import (
 	"fmt"
 )
 
-// Authentication interface provides a means for different SASL authentication
+// Authentication interface provides a means for different SASL authentication 认证机制
 // mechanisms to be used during connection tuning.
 type Authentication interface {
 	Mechanism() string

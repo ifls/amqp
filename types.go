@@ -6,8 +6,12 @@
 package amqp
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
+	"reflect"
 	"time"
 )
 
@@ -268,7 +272,7 @@ func (set *tagSet) Pop() interface{} {
 }
 
 type message interface {
-	id() (uint16, uint16)
+	id() (uint16, uint16) // classID, methodID
 	wait() bool
 	read(io.Reader) error
 	write(io.Writer) error
@@ -285,14 +289,14 @@ The base interface implemented as:
 
 2.3.5  frame Details
 
-All frames consist of a header (7 octets), a payload of arbitrary size, and a 'frame-end' octet that detects
+All frames consist of a header (7 octets8位字节 7B), a payload of arbitrary size, and a 'frame-end' octet that detects
 malformed frames:
 
   0      1         3             7                  size+7 size+8
   +------+---------+-------------+  +------------+  +-----------+
   | type | channel |     size    |  |  payload   |  | frame-end |
   +------+---------+-------------+  +------------+  +-----------+
-   octet   short         long         size octets       octet
+   octet   short         long         size octets       octet 2B
 
 To read a frame, we:
 
@@ -326,14 +330,24 @@ func (protocolHeader) write(w io.Writer) error {
 	return err
 }
 
+func (protocolHeader) read(r io.Reader) (n int, err error) {
+	p := make([]byte, 1<<12)
+	n, err = r.Read(p)
+	if !reflect.DeepEqual(p[:8], []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}) {
+		log.Fatal("protocolHeader read fatal")
+	}
+	return
+}
+
 func (protocolHeader) channel() uint16 {
 	panic("only valid as initial handshake")
 }
 
 /*
-Method frames carry the high-level protocol commands (which we call "methods").
-One method frame carries one command.  The method frame payload has this format:
+Method frames carry the high-level protocol commands (which we call "methods"). 协议命令
 
+One method frame carries one command.  The method frame payload has this format:
+方法帧, 在负载里
   0          2           4
   +----------+-----------+-------------- - -
   | class-id | method-id | arguments...
@@ -343,8 +357,8 @@ One method frame carries one command.  The method frame payload has this format:
 To process a method frame, we:
  1. Read the method frame payload.
  2. Unpack it into a structure.  A given method always has the same structure,
- so we can unpack the method rapidly.  3. Check that the method is allowed in
- the current context.
+ so we can unpack the method rapidly.
+ 3. Check that the method is allowed in the current context.
  4. Check that the method arguments are valid.
  5. Execute the method.
 
@@ -361,6 +375,35 @@ type methodFrame struct {
 
 func (f *methodFrame) channel() uint16 { return f.ChannelId }
 
+func (f *methodFrame) read(p []byte) (n int, err error) {
+	if len(p) < 6 {
+		return 0, fmt.Errorf("less than 6")
+	}
+
+	buf := bytes.NewBuffer(p)
+
+	err = binary.Read(buf, binary.BigEndian, &f.ClassId)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Read(buf, binary.BigEndian, &f.MethodId)
+	if err != nil {
+		return 0, err
+	}
+
+	return
+}
+
+func (f *methodFrame) reader(r io.Reader) (n int, err error) {
+	p := make([]byte, 1<<12)
+	n, err = r.Read(p)
+	if !reflect.DeepEqual(p[:8], []byte{'A', 'M', 'Q', 'P', 0, 0, 9, 1}) {
+		log.Fatal("protocolHeader read fatal")
+	}
+	return
+}
+
 /*
 Heartbeating is a technique designed to undo one of TCP/IP's features, namely
 its ability to recover from a broken physical connection by closing only after
@@ -375,6 +418,10 @@ type heartbeatFrame struct {
 }
 
 func (f *heartbeatFrame) channel() uint16 { return f.ChannelId }
+
+func (f *heartbeatFrame) read(p []byte) (n int, err error) {
+	return
+}
 
 /*
 Certain methods (such as Basic.Publish, Basic.Deliver, etc.) are formally
@@ -396,24 +443,53 @@ frame so that recipients can selectively discard contents they do not want to
 process
 */
 type headerFrame struct {
-	ChannelId  uint16
-	ClassId    uint16
-	weight     uint16
-	Size       uint64
-	Properties properties
+	ChannelId     uint16
+	ClassId       uint16
+	weight        uint16
+	Size          uint64
+	propertyFlags uint16
+	Properties    properties
 }
 
 func (f *headerFrame) channel() uint16 { return f.ChannelId }
 
-/*
-Content is the application data we carry from client-to-client via the AMQP
-server.  Content is, roughly speaking, a set of properties plus a binary data
-part.  The set of allowed properties are defined by the Basic class, and these
-form the "content header frame".  The data can be any size, and MAY be broken
-into several (or many) chunks, each forming a "content body frame".
+func (f *headerFrame) read(p []byte) (n int, err error) {
+	if len(p) < 14 {
+		return 0, fmt.Errorf("less than 6")
+	}
 
-Looking at the frames for a specific channel, as they pass on the wire, we
-might see something like this:
+	buf := bytes.NewBuffer(p)
+
+	err = binary.Read(buf, binary.BigEndian, &f.ClassId)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Read(buf, binary.BigEndian, &f.weight)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Read(buf, binary.BigEndian, &f.Size)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Read(buf, binary.BigEndian, &f.propertyFlags)
+	if err != nil {
+		return 0, err
+	}
+
+	return
+}
+
+/*
+Content is the application data we carry from client-to-client via the AMQP server.
+Content is, roughly speaking, a set of properties plus a binary data part.
+The set of allowed properties are defined by the Basic class, and these form the "content header frame".
+The data can be any size, and MAY be broken into several (or many) chunks, each forming a "content body frame".
+
+Looking at the frames for a specific channel, as they pass on the wire, we might see something like this:
 
 		[method]
 		[method] [header] [body] [body]
@@ -426,3 +502,8 @@ type bodyFrame struct {
 }
 
 func (f *bodyFrame) channel() uint16 { return f.ChannelId }
+
+func (f *bodyFrame) read(p []byte) (n int, err error) {
+	f.Body = p
+	return
+}

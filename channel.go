@@ -6,26 +6,26 @@
 package amqp
 
 import (
+	"log"
 	"reflect"
 	"sync"
 	"sync/atomic"
 )
 
-// 0      1         3             7                  size+7 size+8
-// +------+---------+-------------+  +------------+  +-----------+
-// | type | channel |     size    |  |  payload   |  | frame-end |
-// +------+---------+-------------+  +------------+  +-----------+
-//  octet   short         long         size octets       octet
+// 0      1         3             7                  size+7       size+8
+// +--------+---------+-------------+  +------------+  +-----------+
+// | type   | channel |     size    |  |  payload   |  | frame-end |
+// +--------+---------+-------------+  +------------+  +-----------+
+//  octet1B   short2B      long4B        size octets      octet 1B
 const frameHeaderSize = 1 + 2 + 4 + 1
 
 /*
-Channel represents an AMQP channel. Used as a context for valid message
-exchange.  Errors on methods with this Channel as a receiver means this channel
+Channel represents an AMQP channel. Used as a context for valid message exchange.
+Errors on methods with this Channel as a receiver means this channel
 should be discarded and a new channel established.
-
 */
 type Channel struct {
-	destructor sync.Once
+	destructor sync.Once  // 保证shutdown函数, 不会重复调用
 	m          sync.Mutex // struct field mutex
 	confirmM   sync.Mutex // publisher confirms state mutex
 	notifyM    sync.RWMutex
@@ -33,12 +33,12 @@ type Channel struct {
 	connection *Connection
 
 	rpc       chan message
-	consumers *consumers
+	consumers *consumers // 消费者
 
 	id uint16
 
 	// closed is set to 1 when the channel has been closed - see Channel.send()
-	closed int32
+	closed int32 // 标记关闭, 原子操作
 
 	// true when we will never notify again
 	noNotify bool
@@ -54,19 +54,18 @@ type Channel struct {
 	// publishings or undeliverable messages on immediate publishings.
 	returns []chan Return
 
-	// Listeners for when the server notifies the client that
-	// a consumer has been cancelled.
+	// Listeners for when the server notifies the client that a consumer has been cancelled.
 	cancels []chan string
 
 	// Allocated when in confirm mode in order to track publish counter and order confirms
 	confirms   *confirms
-	confirming bool
+	confirming bool // 是否开启确定通知模式
 
 	// Selects on any errors from shutdown during RPC
 	errors chan *Error
 
 	// State machine that manages frame order, must only be mutated变化 by the connection
-	recv func(*Channel, frame) error   //接收从服务器发来的帧
+	recv func(*Channel, frame) error // 接收从服务器发来的帧, 分发到指定channel
 
 	// Current state for frame re-assembly, only mutated from recv
 	message messageWithContent
@@ -90,6 +89,7 @@ func newChannel(c *Connection, id uint16) *Channel {
 // shutdown is called by Connection after the channel has been removed from the
 // connection registry.
 func (ch *Channel) shutdown(e *Error) {
+	//
 	ch.destructor.Do(func() {
 		ch.m.Lock()
 		defer ch.m.Unlock()
@@ -98,7 +98,7 @@ func (ch *Channel) shutdown(e *Error) {
 		ch.notifyM.Lock()
 		defer ch.notifyM.Unlock()
 
-		// Broadcast abnormal shutdown
+		// Broadcast abnormal非正常 shutdown
 		if e != nil {
 			for _, c := range ch.closes {
 				c <- e
@@ -114,6 +114,7 @@ func (ch *Channel) shutdown(e *Error) {
 			ch.errors <- e
 		}
 
+		// 关闭所有channel
 		ch.consumers.close()
 
 		for _, c := range ch.closes {
@@ -155,6 +156,7 @@ func (ch *Channel) shutdown(e *Error) {
 func (ch *Channel) send(msg message) (err error) {
 	// If the channel is closed, use Channel.sendClosed()
 	if atomic.LoadInt32(&ch.closed) == 1 {
+		// connection 还未关闭
 		return ch.sendClosed(msg)
 	}
 
@@ -172,6 +174,7 @@ func (ch *Channel) call(req message, res ...message) error {
 		return err
 	}
 
+	// 阻塞等待response
 	if req.wait() {
 		select {
 		case e, ok := <-ch.errors:
@@ -180,7 +183,7 @@ func (ch *Channel) call(req message, res ...message) error {
 			}
 			return ErrClosed
 
-		case msg := <-ch.rpc:
+		case msg := <-ch.rpc: // connection read 发到rpc, 再从rpc接口
 			if msg != nil {
 				for _, try := range res {
 					if reflect.TypeOf(msg) == reflect.TypeOf(try) {
@@ -203,6 +206,7 @@ func (ch *Channel) call(req message, res ...message) error {
 	return nil
 }
 
+// channel 已关闭, 通过connection的函数发送
 func (ch *Channel) sendClosed(msg message) (err error) {
 	// After a 'channel.close' is sent or received the only valid response is
 	// channel.close-ok
@@ -216,6 +220,7 @@ func (ch *Channel) sendClosed(msg message) (err error) {
 	return ErrClosed
 }
 
+// 发送请求
 func (ch *Channel) sendOpen(msg message) (err error) {
 	if content, ok := msg.(messageWithContent); ok {
 		props, body := content.getContent()
@@ -230,40 +235,47 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 			size = len(body)
 		}
 
-		if err = ch.connection.send(&methodFrame{
+		mf := &methodFrame{
 			ChannelId: ch.id,
 			Method:    content,
-		}); err != nil {
+		}
+		if err = ch.connection.send(mf); err != nil {
 			return
 		}
+		log.Printf("send methodFrame %+v \n", *mf)
 
-		if err = ch.connection.send(&headerFrame{
+		hf := &headerFrame{
 			ChannelId:  ch.id,
 			ClassId:    class,
 			Size:       uint64(len(body)),
 			Properties: props,
-		}); err != nil {
+		}
+		if err = ch.connection.send(hf); err != nil {
 			return
 		}
-
+		log.Printf("send headerFrame %+v \n", *hf)
 		// chunk body into size (max frame size - frame header size)
 		for i, j := 0, size; i < len(body); i, j = j, j+size {
 			if j > len(body) {
 				j = len(body)
 			}
 
-			if err = ch.connection.send(&bodyFrame{
+			mf := &bodyFrame{ // 消息body体里面的内容, 在这里
 				ChannelId: ch.id,
 				Body:      body[i:j],
-			}); err != nil {
+			}
+			if err = ch.connection.send(mf); err != nil {
 				return
 			}
+			log.Printf("send bodyFrame %+v \n", *mf)
 		}
 	} else {
-		err = ch.connection.send(&methodFrame{
+		mf := &methodFrame{
 			ChannelId: ch.id,
 			Method:    msg,
-		})
+		}
+		err = ch.connection.send(mf)
+		log.Printf("send methodFrame %+v \n", *mf)
 	}
 
 	return
@@ -324,21 +336,23 @@ func (ch *Channel) dispatch(msg message) {
 			}
 		}
 
-	case *basicDeliver:
+	case *basicDeliver: // 接收消息
 		ch.consumers.send(m.ConsumerTag, newDelivery(ch, m))
 		// TODO log failed consumer and close channel, this can happen when
 		// deliveries are in flight and a no-wait cancel has happened
 
-	default:
+	default: // 自由处理
 		ch.rpc <- msg
 	}
 }
 
+// 切换接收, 处理函数
 func (ch *Channel) transition(f func(*Channel, frame) error) error {
 	ch.recv = f
 	return nil
 }
 
+// 接收物理帧
 func (ch *Channel) recvMethod(f frame) error {
 	switch frame := f.(type) {
 	case *methodFrame:
@@ -351,11 +365,11 @@ func (ch *Channel) recvMethod(f frame) error {
 		ch.dispatch(frame.Method) // termination state
 		return ch.transition((*Channel).recvMethod)
 
-	case *headerFrame:
+	case *headerFrame: // header帧, 不应该进到这个方法
 		// drop
 		return ch.transition((*Channel).recvMethod)
 
-	case *bodyFrame:
+	case *bodyFrame: // body帧, 应该是recvContent方法处理
 		// drop
 		return ch.transition((*Channel).recvMethod)
 	}
@@ -507,7 +521,7 @@ func (ch *Channel) NotifyFlow(c chan bool) chan bool {
 NotifyReturn registers a listener for basic.return methods.  These can be sent
 from the server when a publish is undeliverable either from the mandatory or
 immediate flags.
-
+监听 basic.return
 A return struct has a copy of the Publishing along with some error
 information about why the publishing failed.
 
@@ -529,7 +543,7 @@ func (ch *Channel) NotifyReturn(c chan Return) chan Return {
 NotifyCancel registers a listener for basic.cancel methods.  These can be sent
 from the server when a queue is deleted or when consuming from a mirrored queue
 where the master has just failed (and was moved to another node).
-
+监听 basic.cancel
 The subscription tag is returned to the listener.
 
 */
@@ -574,9 +588,9 @@ func (ch *Channel) NotifyConfirm(ack, nack chan uint64) (chan uint64, chan uint6
 
 /*
 NotifyPublish registers a listener for reliable publishing. Receives from this
-chan for every publish after Channel.Confirm will be in order starting with
+chan for every publish after Channel.Confirm will be in order按序 starting with
 DeliveryTag 1.
-
+监听可靠发布 basic.ack
 There will be one and only one Confirmation Publishing starting with the
 delivery tag of 1 and progressing sequentially until the total number of
 Publishings have been seen by the server.
@@ -613,7 +627,7 @@ func (ch *Channel) NotifyPublish(confirm chan Confirmation) chan Confirmation {
 Qos controls how many messages or how many bytes the server will try to keep on
 the network for consumers before receiving delivery acks.  The intent of Qos is
 to make sure the network buffers stay full between the server and client.
-
+控制消息或者字节级的窗口大小
 With a prefetch count greater than zero, the server will deliver that many
 messages to consumers before acknowledgments are received.  The server ignores
 this option when consumers are started with noAck because no acknowledgments
@@ -658,7 +672,7 @@ func (ch *Channel) Qos(prefetchCount, prefetchSize int, global bool) error {
 /*
 Cancel stops deliveries to the consumer chan established in Channel.Consume and
 identified by consumer.
-
+停止消费
 Only use this method to cleanly stop receiving deliveries from the server and
 cleanly shut down the consumer chan identified by this tag.  Using this method
 and waiting for remaining messages to flush from the consumer chan will ensure
@@ -688,7 +702,7 @@ func (ch *Channel) Cancel(consumer string, noWait bool) error {
 	if req.wait() {
 		ch.consumers.cancel(res.ConsumerTag)
 	} else {
-		// Potentially could drop deliveries in flight
+		// Potentially could drop deliveries in flight 途中
 		ch.consumers.cancel(consumer)
 	}
 
@@ -768,7 +782,7 @@ func (ch *Channel) QueueDeclare(name string, durable, autoDelete, exclusive, noW
 		return Queue{}, err
 	}
 
-	if req.wait() {
+	if req.wait() { // 阻塞才能拿到值
 		return Queue{
 			Name:      res.Queue,
 			Messages:  int(res.MessageCount),
@@ -781,11 +795,12 @@ func (ch *Channel) QueueDeclare(name string, durable, autoDelete, exclusive, noW
 
 /*
 
-QueueDeclarePassive is functionally and parametrically equivalent to
-QueueDeclare, except that it sets the "passive" attribute to true. A passive
-queue is assumed by RabbitMQ to already exist, and attempting to connect to a
-non-existent queue will cause RabbitMQ to throw an exception. This function
-can be used to test for the existence of a queue.
+QueueDeclarePassive is functionally and parametrically equivalent to QueueDeclare,
+except that it sets the "passive" attribute to true.
+
+A passive queue is assumed by RabbitMQ to already exist, and attempting to connect to a
+non-existent queue will cause RabbitMQ to throw an exception.
+This function can be used to test for the existence of a queue.
 
 */
 func (ch *Channel) QueueDeclarePassive(name string, durable, autoDelete, exclusive, noWait bool, args Table) (Queue, error) {
@@ -820,7 +835,7 @@ func (ch *Channel) QueueDeclarePassive(name string, durable, autoDelete, exclusi
 }
 
 /*
-QueueInspect passively declares a queue by name to inspect the current message
+QueueInspect passively declares a queue 声明了一个队列 by name to inspect the current message
 count and consumer count.
 
 Use this method to check how many messages ready for delivery reside in the queue,
@@ -831,7 +846,7 @@ If the queue by this name exists, use Channel.QueueDeclare check if it is
 declared with specific parameters.
 
 If a queue by this name does not exist, an error will be returned and the
-channel will be closed.
+channel will be closed. 队列不存在, 会返回错误
 
 */
 func (ch *Channel) QueueInspect(name string) (Queue, error) {
@@ -938,9 +953,9 @@ func (ch *Channel) QueueUnbind(name, key, exchange string, args Table) error {
 }
 
 /*
-QueuePurge removes all messages from the named queue which are not waiting to
-be acknowledged.  Messages that have been delivered but have not yet been
-acknowledged will not be removed.
+QueuePurge removes all messages from the named queue which are not waiting to be acknowledged.
+Messages that have been delivered but have not yet been
+acknowledged will not be removed.  已交付但未确认的消息,移除掉
 
 When successful, returns the number of messages purged.
 
@@ -994,7 +1009,7 @@ func (ch *Channel) QueueDelete(name string, ifUnused, ifEmpty, noWait bool) (int
 
 /*
 Consume immediately starts delivering queued messages.
-
+立即开始分发消息
 Begin receiving on the returned chan Delivery before any other operation on the
 Connection or Channel.
 
@@ -1058,7 +1073,7 @@ func (ch *Channel) Consume(queue, consumer string, autoAck, exclusive, noLocal, 
 		return nil, err
 	}
 
-	if consumer == "" {
+	if consumer == "" { // 随机分配tag
 		consumer = uniqueConsumerTag()
 	}
 
@@ -1075,8 +1090,10 @@ func (ch *Channel) Consume(queue, consumer string, autoAck, exclusive, noLocal, 
 
 	deliveries := make(chan Delivery)
 
+	// 添加到chan数组里, 用于接收消息
 	ch.consumers.add(consumer, deliveries)
 
+	// 发起消费请求
 	if err := ch.call(req, res); err != nil {
 		ch.consumers.cancel(consumer)
 		return nil, err
@@ -1086,9 +1103,9 @@ func (ch *Channel) Consume(queue, consumer string, autoAck, exclusive, noLocal, 
 }
 
 /*
-ExchangeDeclare declares an exchange on the server. If the exchange does not
-already exist, the server will create it.  If the exchange exists, the server
-verifies that it is of the provided type, durability and auto-delete flags.
+ExchangeDeclare declares an exchange on the server.
+If the exchange does not already exist, the server will create it.
+If the exchange exists, the server verifies that it is of the provided type, durability and auto-delete flags.
 
 Errors returned from this method will close the channel.
 
@@ -1242,6 +1259,7 @@ handle these errors.
 
 Optional arguments specific to the exchanges bound can also be specified.
 */
+// 交换机绑定交换机,
 func (ch *Channel) ExchangeBind(destination, key, source string, noWait bool, args Table) error {
 	if err := args.Validate(); err != nil {
 		return err
@@ -1449,8 +1467,8 @@ func (ch *Channel) TxRollback() error {
 }
 
 /*
-Flow pauses the delivery of messages to consumers on this channel.  Channels
-are opened with flow control active, to open a channel with paused
+Flow pauses停止? the delivery of messages to consumers on this channel.
+Channels are opened with flow control active, to open a channel with paused
 deliveries immediately call this method with `false` after calling
 Connection.Channel.
 
@@ -1501,7 +1519,7 @@ persisting the message if necessary.
 
 When noWait is true, the client will not wait for a response.  A channel
 exception could occur if the server does not support this method.
-
+开启确认
 */
 func (ch *Channel) Confirm(noWait bool) error {
 	if err := ch.call(
@@ -1520,7 +1538,7 @@ func (ch *Channel) Confirm(noWait bool) error {
 
 /*
 Recover redelivers all unacknowledged deliveries on this channel.
-
+重新投递
 When requeue is false, messages will be redelivered to the original consumer.
 
 When requeue is true, messages will be redelivered to any available consumer,

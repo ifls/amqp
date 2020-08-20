@@ -1,5 +1,6 @@
 // +build gofuzz
 
+// 随机测试, 模糊测试
 package amqp
 
 import "bytes"

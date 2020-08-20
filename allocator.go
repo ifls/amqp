@@ -21,7 +21,7 @@ type allocator struct {
 
 // NewAllocator reserves and frees integers out of a range between low and
 // high.
-//
+// [low, high] 闭区间
 // O(N) worst case space used, where N is maximum allocated, divided by
 // sizeof(big.Word)
 func newAllocator(low, high int) *allocator {
@@ -47,7 +47,7 @@ func (a allocator) String() string {
 			high++
 		}
 
-		if high > low+1 {
+		if high > low+1 { // [low, cur-max-alloc, high)
 			fmt.Fprintf(b, " %d..%d", low, high-1)
 		} else if high > low {
 			fmt.Fprintf(b, " %d", high-1)
@@ -66,16 +66,17 @@ func (a allocator) String() string {
 func (a *allocator) next() (int, bool) {
 	wrapped := a.last
 
-	// Find trailing bit
+	// Find trailing bit  中间到后面
 	for ; a.last <= a.high; a.last++ {
 		if a.reserve(a.last) {
 			return a.last, true
 		}
 	}
 
-	// Find preceding free'd pool
+	// Find preceding free'd pool a.last会++
 	a.last = a.low
 
+	// 前面, 到中间
 	for ; a.last < wrapped; a.last++ {
 		if a.reserve(a.last) {
 			return a.last, true
@@ -86,7 +87,7 @@ func (a *allocator) next() (int, bool) {
 }
 
 // reserve claims the bit if it is not already claimed, returning true if
-// successfully claimed.
+// successfully claimed. 分配
 func (a *allocator) reserve(n int) bool {
 	if a.reserved(n) {
 		return false
@@ -95,6 +96,7 @@ func (a *allocator) reserve(n int) bool {
 	return true
 }
 
+// 是否已分配
 // reserved returns true if the integer has been allocated
 func (a *allocator) reserved(n int) bool {
 	return a.pool.Bit(n-a.low) == allocated

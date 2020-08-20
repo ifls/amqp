@@ -30,21 +30,21 @@ type Delivery struct {
 	Headers Table // Application or header exchange table map[string]interface{}
 
 	// Properties
-	ContentType     string    // MIME content type
-	ContentEncoding string    // MIME content encoding
+	ContentType     string // MIME content type
+	ContentEncoding string // MIME content encoding
 
-	DeliveryMode    uint8     // 是否持久化 queue implementation use - non-persistent (1) or persistent (2)
-	Priority        uint8     // 优先级 queue implementation use - 0 to 9
+	DeliveryMode uint8 // 是否持久化 queue implementation use - non-persistent (1) or persistent (2)
+	Priority     uint8 // 优先级 queue implementation use - 0 to 9
 
-	CorrelationId   string    // application use - correlation identifier
-	ReplyTo         string    // application use - address to reply to (ex: RPC)
+	CorrelationId string // application use - correlation identifier
+	ReplyTo       string // application use - address to reply to (ex: RPC)
 
-	Expiration      string    // 过期时间 implementation use - message expiration spec
-	MessageId       string    // application use - message identifier标识符
-	Timestamp       time.Time // application use - message timestamp时间戳
-	Type            string    // application use - message type name 类型
-	UserId          string    // application use - creating user - should be authenticated user
-	AppId           string    // application use - creating application id
+	Expiration string    // 过期时间 implementation use - message expiration spec
+	MessageId  string    // application use - message identifier标识符
+	Timestamp  time.Time // application use - message timestamp时间戳
+	Type       string    // application use - message type name 类型
+	UserId     string    // application use - creating user - should be authenticated user
+	AppId      string    // application use - creating application id
 
 	// Valid only with Channel.Consume
 	ConsumerTag string

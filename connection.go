@@ -81,15 +81,15 @@ type Connection struct {
 	sendM      sync.Mutex // conn writer mutex
 	m          sync.Mutex // struct field mutex
 
-	conn io.ReadWriteCloser		//tcp 网络连接
+	conn io.ReadWriteCloser // tcp 网络连接
 
 	rpc       chan message
 	writer    *writer
-	sends     chan time.Time     // timestamps of each frame sent
+	sends     chan time.Time     // 发送时间戳 timestamps of each frame sent
 	deadlines chan readDeadliner // 读到数据时用于重置 deadline heartbeater updates read deadlines
 
-	allocator *allocator // id generator valid after openTune
-	channels  map[uint16]*Channel		// 多 channel 复用
+	allocator *allocator          // id generator valid after openTune
+	channels  map[uint16]*Channel // 多channel 复用, 保存所有channel
 
 	noNotify bool // true when we will never notify again
 	closes   []chan *Error
@@ -152,9 +152,15 @@ func Dial(url string) (*Connection, error) {
 // DialTLS uses the provided tls.Config when encountering an amqps:// scheme.
 func DialTLS(url string, amqps *tls.Config) (*Connection, error) {
 	return DialConfig(url, Config{
+		SASL:            nil,
+		Vhost:           "",
+		ChannelMax:      0,
+		FrameSize:       0,
 		Heartbeat:       defaultHeartbeat,
 		TLSClientConfig: amqps,
+		Properties:      nil,
 		Locale:          defaultLocale,
+		Dial:            nil,
 	})
 }
 
@@ -186,7 +192,7 @@ func DialConfig(url string, config Config) (*Connection, error) {
 		dialer = DefaultDial(defaultConnectionTimeout)
 	}
 
-	//tcp
+	// tcp
 	conn, err = dialer("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -232,7 +238,7 @@ func Open(conn io.ReadWriteCloser, config Config) (*Connection, error) {
 		errors:    make(chan *Error, 1),
 		deadlines: make(chan readDeadliner, 1),
 	}
-	//读取数据
+	// 读取数据
 	go c.reader(conn)
 	return c, c.open(config)
 }
@@ -265,7 +271,7 @@ func (c *Connection) ConnectionState() tls.ConnectionState {
 /*
 NotifyClose registers a listener for close events either initiated by an error
 accompanying a connection.close method or by a normal shutdown.
-
+ 注册连接关闭, 监听器
 On normal shutdowns, the chan will be closed.
 
 To reconnect after a transport or protocol error, register a listener here and
@@ -291,7 +297,7 @@ method extensions connection.blocked and connection.unblocked.  Flow control is
 active with a reason when Blocking.Blocked is true.  When a Connection is
 blocked, all methods will block across all connections until server resources
 become free again.
-
+注册连接阻塞, 监听器
 This optional extension is supported by the server when the
 "connection.blocked" server capability key is true.
 
@@ -356,9 +362,10 @@ func (c *Connection) closeWith(err *Error) error {
 // IsClosed returns true if the connection is marked as closed, otherwise false
 // is returned.
 func (c *Connection) IsClosed() bool {
-	return (atomic.LoadInt32(&c.closed) == 1)
+	return atomic.LoadInt32(&c.closed) == 1
 }
 
+// 发送帧
 func (c *Connection) send(f frame) error {
 	if c.IsClosed() {
 		return ErrClosed
@@ -387,7 +394,7 @@ func (c *Connection) send(f frame) error {
 	return err
 }
 
-//关闭连接
+// 关闭连接
 func (c *Connection) shutdown(err *Error) {
 	atomic.StoreInt32(&c.closed, 1)
 
@@ -444,7 +451,7 @@ func (c *Connection) demux(f frame) {
 
 func (c *Connection) dispatch0(f frame) {
 	switch mf := f.(type) {
-	case *methodFrame:	//方法帧
+	case *methodFrame: // 方法帧
 		switch m := mf.Method.(type) {
 		case *connectionClose:
 			// Send immediately as shutdown will close our side of the writer.
@@ -465,8 +472,9 @@ func (c *Connection) dispatch0(f frame) {
 		default:
 			c.rpc <- m
 		}
-	case *heartbeatFrame:	//心跳帧
-		// kthx - all reads reset our deadline.  so we can drop this
+	case *heartbeatFrame:
+	// 心跳帧
+	// kthx - all reads reset our deadline.  so we can drop this
 	default:
 		// lolwat - channel0 only responds to methods and heartbeats
 		// 发生错误关闭
@@ -480,10 +488,10 @@ func (c *Connection) dispatchN(f frame) {
 	c.m.Unlock()
 
 	if channel != nil {
-		//分发到 channel 里
+		// 分发到 channel 里
 		channel.recv(channel, f)
 	} else {
-		//一个不存在的 channel
+		// 一个不存在的 channel
 		c.dispatchClosed(f)
 	}
 }
@@ -521,12 +529,15 @@ func (c *Connection) dispatchClosed(f frame) {
 // will demux the streams and dispatch to one of the opened channels or
 // handle on channel 0 (the connection channel).
 func (c *Connection) reader(r io.Reader) {
+	if _, ok := r.(*FakerReader); !ok {
+		r = &FakerReader{r}
+	}
 	buf := bufio.NewReader(r)
 	frames := &reader{buf}
 	conn, haveDeadliner := r.(readDeadliner)
 
 	for {
-		//读取一个帧
+		// 读取一个帧
 		frame, err := frames.ReadFrame()
 
 		if err != nil {
@@ -534,7 +545,7 @@ func (c *Connection) reader(r io.Reader) {
 			return
 		}
 
-		//多路复用
+		// 多channel复用
 		c.demux(frame)
 
 		if haveDeadliner {
@@ -577,7 +588,7 @@ func (c *Connection) heartbeater(interval time.Duration, done chan *Error) {
 				}
 			}
 
-		case conn := <-c.deadlines:		//读到了一次数据, 重置 deadline
+		case conn := <-c.deadlines: // 读到了一次数据, 重置 deadline
 			// When reading, reset our side of the deadline, if we've negotiated one with
 			// a deadline that covers at least 2 server heartbeats
 			if interval > 0 {
@@ -616,7 +627,7 @@ func (c *Connection) allocateChannel() (*Channel, error) {
 	}
 
 	ch := newChannel(c, uint16(id))
-	//保存打开的 channel
+	// 保存打开的 channel
 	c.channels[uint16(id)] = ch
 
 	return ch, nil
@@ -664,8 +675,9 @@ func (c *Connection) Channel() (*Channel, error) {
 	return c.openChannel()
 }
 
+// 连接级别的call是在channel0上
 func (c *Connection) call(req message, res ...message) error {
-	// Special case for when the protocol header frame is sent insted of a
+	// Special case for when the protocol header frame is sent instead of a
 	// request method
 	if req != nil {
 		if err := c.send(&methodFrame{ChannelId: 0, Method: req}); err != nil {
@@ -674,13 +686,13 @@ func (c *Connection) call(req message, res ...message) error {
 	}
 
 	select {
-	case err, ok := <-c.errors:
+	case err, ok := <-c.errors: // 接收错误
 		if !ok {
 			return ErrClosed
 		}
 		return err
 
-	case msg := <-c.rpc:
+	case msg := <-c.rpc: // 接收回复
 		// Try to match one of the result types
 		for _, try := range res {
 			if reflect.TypeOf(msg) == reflect.TypeOf(try) {
@@ -806,6 +818,7 @@ func (c *Connection) openTune(config Config, auth Authentication) error {
 	return c.openVhost(config)
 }
 
+// 选择vhost
 func (c *Connection) openVhost(config Config) error {
 	req := &connectionOpen{VirtualHost: config.Vhost}
 	res := &connectionOpenOk{}
@@ -822,6 +835,7 @@ func (c *Connection) openVhost(config Config) error {
 
 // openComplete performs any final Connection initialization dependent on the
 // connection handshake and clears any state needed for TLS and AMQP handshaking.
+// 开始连接结束 over
 func (c *Connection) openComplete() error {
 	// We clear the deadlines and let the heartbeater reset the read deadline if requested.
 	// RabbitMQ uses TCP flow control at this point for pushback so Writes can
@@ -831,7 +845,7 @@ func (c *Connection) openComplete() error {
 	}); ok {
 		_ = deadliner.SetDeadline(time.Time{})
 	}
-
+	// id 分配器
 	c.allocator = newAllocator(1, c.Config.ChannelMax)
 	return nil
 }
