@@ -6,6 +6,8 @@ import (
 	"math/big"
 )
 
+// id分配器
+
 const (
 	free      = 0
 	allocated = 1

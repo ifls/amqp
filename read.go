@@ -56,7 +56,7 @@ func (f *FakerReader) Read(p []byte) (n int, err error) {
 	fakerBytes := make([]byte, len(p), cap(p))
 	n, err = f.innerReader.Read(fakerBytes)
 	copy(p, fakerBytes)
-	printBytes("read<-", fakerBytes)
+	printBytes("<-read", fakerBytes)
 	parseRead(fakerBytes)
 	return
 }
@@ -87,29 +87,29 @@ func parseRead(p []byte) error {
 		log.Fatal(err)
 	}
 	bodyLength = int(length)
-	log.Printf("parseRead<- header type=%d, channelID=%d, length=%d\n", typ, channelID, bodyLength)
+	log.Printf("<-parseRead header type=%d, channelID=%d, length=%d\n", typ, channelID, bodyLength)
 
 	switch typ {
 	case frameBody:
 		var bf bodyFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("parseRead bodyFrame = %+v\n", bf)
+		log.Printf("<-parseRead bodyFrame = %+v\n", bf)
 	case frameHeader:
 		var bf headerFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("parseRead headerFrame = %+v\n", bf)
+		log.Printf("<-parseRead headerFrame = %+v\n", bf)
 	case frameMethod:
 		var bf methodFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("parseRead methodFrame = %+v\n", bf)
+		log.Printf("<-parseRead methodFrame = %+v\n", bf)
 	case frameHeartbeat:
 		var bf heartbeatFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("parseRead heartbeatFrame = %+v\n", bf)
+		log.Printf("<-parseRead heartbeatFrame = %+v\n", bf)
 	}
 
 	return nil
@@ -118,6 +118,7 @@ func parseRead(p []byte) error {
 func (r *reader) ReadFrame() (frame frame, err error) {
 	var scratch [7]byte
 
+	// 读取 7B 头部
 	if _, err = io.ReadFull(r.r, scratch[:7]); err != nil {
 		return
 	}
@@ -126,6 +127,7 @@ func (r *reader) ReadFrame() (frame frame, err error) {
 	channel := binary.BigEndian.Uint16(scratch[1:3])
 	size := binary.BigEndian.Uint32(scratch[3:7])
 
+	// 根据 type,classID, emthodID分发
 	switch typ {
 	case frameMethod:
 		if frame, err = r.parseMethodFrame(channel, size); err != nil {
@@ -151,10 +153,10 @@ func (r *reader) ReadFrame() (frame frame, err error) {
 		return nil, ErrFrame
 	}
 
+	// 读取最后一个字节
 	if _, err = io.ReadFull(r.r, scratch[:1]); err != nil {
 		return nil, err
 	}
-
 	if scratch[0] != frameEnd {
 		return nil, ErrFrame
 	}
@@ -431,16 +433,19 @@ func (r *reader) parseHeaderFrame(channel uint16, size uint32) (frame frame, err
 			return
 		}
 	}
+
 	if hasProperty(flags, flagContentEncoding) {
 		if hf.Properties.ContentEncoding, err = readShortstr(r.r); err != nil {
 			return
 		}
 	}
+
 	if hasProperty(flags, flagHeaders) {
 		if hf.Properties.Headers, err = readTable(r.r); err != nil {
 			return
 		}
 	}
+
 	if hasProperty(flags, flagDeliveryMode) {
 		if err = binary.Read(r.r, binary.BigEndian, &hf.Properties.DeliveryMode); err != nil {
 			return

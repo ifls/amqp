@@ -21,7 +21,7 @@ var schemePorts = map[string]int{
 	"amqps": 5671,
 }
 
-var defaultURI = URI{
+var defaultURI = URI{ // 没填就用默认的
 	Scheme:   "amqp",
 	Host:     "localhost",
 	Port:     5672,
@@ -55,6 +55,7 @@ type URI struct {
 func ParseURI(uri string) (URI, error) {
 	builder := defaultURI
 
+	// 不允许有空格
 	if strings.Contains(uri, " ") == true {
 		return builder, errURIWhitespace
 	}

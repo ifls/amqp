@@ -18,7 +18,7 @@ import (
 )
 
 func printBytes(prefix string, p []byte) {
-	if prefix == "read<-" {
+	if prefix == "<-read" {
 		p = trimBytes(p)
 	}
 	s := fmt.Sprintf(prefix+"(%d) [", len(p))
@@ -27,6 +27,23 @@ func printBytes(prefix string, p []byte) {
 	}
 	if len(p) > 0 {
 		s = s[:len(s)-1] + "]"
+	}
+	log.Printf(s)
+}
+
+func printBytess(prefix string, ps ...[]byte) {
+	s := prefix
+	for _, p := range ps {
+		if prefix == "<-read" {
+			p = trimBytes(p)
+		}
+		s += fmt.Sprintf(" (%d)[", len(p))
+		for i := range p {
+			s += fmt.Sprintf("%02X ", p[i])
+		}
+		if len(p) > 0 {
+			s = s[:len(s)-1] + "]"
+		}
 	}
 	log.Printf(s)
 }
@@ -54,7 +71,7 @@ func (f *FakerWriter) Write(p []byte) (n int, err error) {
 	n, err = f.innerWriter.Write(p)
 	fakerBytes := make([]byte, len(p))
 	copy(fakerBytes, p)
-	printBytes("send->", fakerBytes)
+	printBytes("->send", fakerBytes)
 	return
 }
 
@@ -72,7 +89,7 @@ type FakerBufWriter struct {
 // 	return
 // }
 
-// 写到buf, 刷新buf到内核缓冲区
+// 写到buf, 然后刷新buf到内核缓冲区
 func (w *writer) WriteFrame(frame frame) (err error) {
 	fw := &FakerWriter{w.w}
 
@@ -188,6 +205,7 @@ func (f *headerFrame) write(w io.Writer) (err error) {
 		mask = mask | flagAppId
 	}
 
+	// flags
 	if err = binary.Write(&payload, binary.BigEndian, mask); err != nil {
 		return
 	}
@@ -274,7 +292,7 @@ func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) (err err
 	size := uint(len(payload))
 
 	// head 7B type1B+channel2B+length4B 大端序 网络序
-	_, err = w.Write([]byte{
+	head := []byte{
 		byte(typ), // type 1B
 		byte((channel & 0xff00) >> 8),
 		byte((channel & 0x00ff) >> 0), // channel 2B
@@ -282,7 +300,11 @@ func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) (err err
 		byte((size & 0x00ff0000) >> 16),
 		byte((size & 0x0000ff00) >> 8),
 		byte((size & 0x000000ff) >> 0), // length 4B
-	})
+	}
+
+	printBytess("->send Frame", head, payload, end)
+	// debug.PrintStack()
+	_, err = w.Write(head)
 
 	if err != nil {
 		return

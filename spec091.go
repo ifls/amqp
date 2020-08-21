@@ -51,77 +51,107 @@ const (
 var methodMap map[string]int
 
 func init() {
+	methodMap = make(map[string]int)
 	// connection
+	// 开始连接协商
 	methodMap["connectionStart"] = 10<<8 + 10
 	methodMap["connectionStartOk"] = 10<<8 + 11
+
 	methodMap["connectionSecure"] = 10<<8 + 20
 	methodMap["connectionSecureOk"] = 10<<8 + 21
+
 	methodMap["connectionTune"] = 10<<8 + 30 // 5
 	methodMap["connectionTuneOk"] = 10<<8 + 31
+
 	methodMap["connectionOpen"] = 10<<8 + 40
 	methodMap["connectionOpenOk"] = 10<<8 + 41
+
 	methodMap["connectionClose"] = 10<<8 + 50
 	methodMap["connectionCloseOk"] = 10<<8 + 51 // 10
+
 	methodMap["connectionBlocked"] = 10<<8 + 60
+
 	methodMap["connectionUnblocked"] = 10<<8 + 61
 
 	// channel
 	methodMap["channelOpen"] = 20<<8 + 10
 	methodMap["channelOpenOk"] = 20<<8 + 11
+
 	methodMap["channelFlow"] = 20<<8 + 20 // 15
 	methodMap["channelFlowOk"] = 20<<8 + 21
+
 	methodMap["channelClose"] = 20<<8 + 40
 	methodMap["channelCloseOk"] = 20<<8 + 41
 
 	// exchange
 	methodMap["exchangeDeclare"] = 40<<8 + 10
 	methodMap["exchangeDeclareOk"] = 40<<8 + 11 // 20
+
 	methodMap["exchangeDelete"] = 40<<8 + 20
 	methodMap["exchangeDeleteOk"] = 40<<8 + 21
+
 	methodMap["exchangeBind"] = 40<<8 + 30
 	methodMap["exchangeBindOk"] = 40<<8 + 31
+
 	methodMap["exchangeUnbind"] = 40<<8 + 40
 	methodMap["exchangeUnbindOk"] = 40<<8 + 51
 
 	// queue
 	methodMap["queueDeclare"] = 50<<8 + 10
 	methodMap["queueDeclareOk"] = 50<<8 + 11
+
 	methodMap["queueBind"] = 50<<8 + 20
 	methodMap["queueBindOk"] = 50<<8 + 21 // 30
+
 	methodMap["queueUnbind"] = 50<<8 + 50
 	methodMap["queueUnbindOk"] = 50<<8 + 51
+
 	methodMap["queuePurge"] = 50<<8 + 30
 	methodMap["queuePurgeOk"] = 50<<8 + 31
+
 	methodMap["queueDelete"] = 50<<8 + 40
 	methodMap["queueDeleteOk"] = 50<<8 + 41
 
 	// basic
 	methodMap["basicQos"] = 60<<8 + 10
 	methodMap["basicQosOk"] = 60<<8 + 11
+
 	methodMap["basicConsume"] = 60<<8 + 20
 	methodMap["basicConsumeOk"] = 60<<8 + 21 // 40
+
 	methodMap["basicCancel"] = 60<<8 + 30
 	methodMap["basicCancelOk"] = 60<<8 + 31
+
 	methodMap["basicPublish"] = 60<<8 + 40
+
 	methodMap["basicReturn"] = 60<<8 + 50
+
 	methodMap["basicDeliver"] = 60<<8 + 60
+
 	methodMap["basicGet"] = 60<<8 + 70
 	methodMap["basicGetOk"] = 60<<8 + 71
 	methodMap["basicGetEmpty"] = 60<<8 + 72
+
 	methodMap["basicAck"] = 60<<8 + 80
+
 	methodMap["basicReject"] = 60<<8 + 90 // 50
+
 	methodMap["basicRecoverAsync"] = 60<<8 + 100
+
 	methodMap["basicRecover"] = 60<<8 + 110
 	methodMap["basicRecoverOk"] = 60<<8 + 111
+
 	methodMap["basicNack"] = 60<<8 + 120
 
 	// tx
 	methodMap["txSelect"] = 90<<8 + 10
 	methodMap["txSelectOk"] = 90<<8 + 11
+
 	methodMap["txCommit"] = 90<<8 + 20
 	methodMap["txCommitOk"] = 90<<8 + 21
+
 	methodMap["txRollback"] = 90<<8 + 30
-	methodMap["txRollbackOk"] = 90<<8 + 31
+	methodMap["txRollbackOk"] = 90<<8 + 31 // 60
 
 	// confirm
 	methodMap["confirmSelect"] = 85<<8 + 10
@@ -2821,6 +2851,7 @@ func (msg *confirmSelectOk) read(r io.Reader) (err error) {
 	return
 }
 
+// 解析方法帧
 func (r *reader) parseMethodFrame(channel uint16, size uint32) (f frame, err error) {
 	mf := &methodFrame{
 		ChannelId: channel,
@@ -3378,11 +3409,11 @@ func (r *reader) parseMethodFrame(channel uint16, size uint32) (f frame, err err
 			mf.Method = method
 
 		default:
-			return nil, fmt.Errorf("Bad method frame, unknown method %d for class %d", mf.MethodId, mf.ClassId)
+			return nil, fmt.Errorf("bad method frame, unknown method %d for class %d", mf.MethodId, mf.ClassId)
 		}
 
 	default:
-		return nil, fmt.Errorf("Bad method frame, unknown class %d", mf.ClassId)
+		return nil, fmt.Errorf("bad method frame, unknown class %d", mf.ClassId)
 	}
 
 	return mf, nil

@@ -70,8 +70,8 @@ var (
 type Error struct {
 	Code    int    // constant code from the specification
 	Reason  string // description of the error
-	Server  bool   // true when initiated from the server, false when from this library
-	Recover bool   // true when this error can be recovered by retrying later or with different parameters
+	Server  bool   // 是否是服务器端的错误, true when initiated from the server, false when from this library
+	Recover bool   // 可以重试, true when this error can be recovered by retrying later or with different parameters
 }
 
 func newError(code uint16, text string) *Error {
@@ -105,14 +105,15 @@ type properties struct {
 	reserved1       string    // was cluster-id - process for buffer consumption
 }
 
-// DeliveryMode.  Transient means higher throughput but messages will not be
-// restored on broker restart.  The delivery mode of publishings is unrelated
-// to the durability of the queues they reside on.  Transient messages will
-// not be restored to durable queues, persistent messages will be restored to
+// DeliveryMode.
+// Transient means higher throughput but messages will not be restored on broker restart.
+// The delivery mode of publishings is unrelated to the durability of the queues they reside on. 发布消息的交付模式,
+// 持久性和消息队列本身的持久性无关
+// Transient messages will not be restored to durable queues, persistent messages will be restored to
 // durable queues and lost on non-durable queues during server restart.
 //
 // This remains typed as uint8 to match Publishing.DeliveryMode.  Other
-// delivery modes specific to custom queue implementations are not enumerated
+// delivery modes specific to custom queue implementations are not enumerated 枚举出来
 // here.
 const (
 	Transient  uint8 = 1
@@ -122,7 +123,7 @@ const (
 // The property flags are an array of bits that indicate the presence or
 // absence of each property value in sequence.  The bits are ordered from most
 // high to low - bit 15 indicates the first property.
-const (
+const ( // 头帧, 特性标志
 	flagContentType     = 0x8000
 	flagContentEncoding = 0x4000
 	flagHeaders         = 0x2000
@@ -143,8 +144,8 @@ const (
 // from Channel.QueueDeclare or Channel.QueueInspect.
 type Queue struct {
 	Name      string // server confirmed or generated name
-	Messages  int    // count of messages not awaiting acknowledgment
-	Consumers int    // number of consumers receiving deliveries
+	Messages  int    // 非等待确认的消息数量, 就是队列里剩下的还未开始处理的消息的数量, count of messages not awaiting acknowledgment
+	Consumers int    // 当前消费者数量 number of consumers receiving deliveries
 }
 
 // Publishing captures the client message sent to the server.  The fields
@@ -174,25 +175,25 @@ type Publishing struct {
 	Body []byte
 }
 
-// Blocking notifies the server's TCP flow control of the Connection.  When a
-// server hits a memory or disk alarm it will block all connections until the
-// resources are reclaimed.  Use NotifyBlock on the Connection to receive these
-// events.
+// Blocking notifies the server's TCP flow control of the Connection.
+// When a server hits a memory or disk alarm it will block all connections until the 服务器资源满, 会阻塞所有连接, 直到服务器资源恢复可用
+// resources are reclaimed.
+// Use NotifyBlock on the Connection to receive these events.
 type Blocking struct {
-	Active bool   // TCP pushback active/inactive on server
+	Active bool   // TCP pushback回推 active/inactive on server
 	Reason string // Server reason for activation
 }
 
-// Confirmation notifies the acknowledgment or negative acknowledgement of a
-// publishing identified by its delivery tag.  Use NotifyPublish on the Channel
-// to consume these events.
+// Confirmation notifies the acknowledgment or negative acknowledgement of a publishing identified by由deliverTag标志 its delivery tag.
+// Use NotifyPublish on the Channel to consume these events.
+// 对发布到服务器的消息, 服务器返回确认与否
 type Confirmation struct {
 	DeliveryTag uint64 // A 1 based counter of publishings from when the channel was put in Confirm mode
 	Ack         bool   // True when the server successfully received the publishing
 }
 
-// Decimal matches the AMQP decimal type.  Scale is the number of decimal
-// digits Scale == 2, Value == 12345, Decimal == 123.45
+// Decimal matches the AMQP decimal type.
+// Scale is the number of decimal digits Scale == 2, Value == 12345, Decimal == 123.45
 type Decimal struct {
 	Scale uint8
 	Value int32
@@ -273,7 +274,7 @@ func (set *tagSet) Pop() interface{} {
 
 type message interface {
 	id() (uint16, uint16) // classID, methodID
-	wait() bool
+	wait() bool           // 是否阻塞, 等待response
 	read(io.Reader) error
 	write(io.Writer) error
 }
@@ -281,7 +282,7 @@ type message interface {
 type messageWithContent interface {
 	message
 	getContent() (properties, []byte)
-	setContent(properties, []byte)
+	setContent(properties, []byte) // 设置属性和body
 }
 
 /*
@@ -289,14 +290,14 @@ The base interface implemented as:
 
 2.3.5  frame Details
 
-All frames consist of a header (7 octets8位字节 7B), a payload of arbitrary size, and a 'frame-end' octet that detects
-malformed frames:
+All frames consist of a header (7 octets(8位字节) 7B), a payload of arbitrary size, and a 'frame-end' octet that detects
+malformed frames: 帧尾部的0xce用于检测错误帧
 
-  0      1         3             7                  size+7 size+8
+  0      1         3             7                  size+7      size+8
   +------+---------+-------------+  +------------+  +-----------+
   | type | channel |     size    |  |  payload   |  | frame-end |
   +------+---------+-------------+  +------------+  +-----------+
-   octet   short         long         size octets       octet 2B
+   octet   short         long         size octets       octet 1B
 
 To read a frame, we:
 
@@ -304,9 +305,9 @@ To read a frame, we:
  2. Depending on the frame type, we read the payload and process it.
  3. Read the frame end octet.
 
-In realistic implementations where performance is a concern, we would use
+In realistic implementations where performance is a concern 关注点, we would use
 “read-ahead buffering” or “gathering reads” to avoid doing three separate
-system calls to read a frame.
+system calls to read a frame. 避免三次系统调用
 
 */
 type frame interface {
@@ -322,7 +323,7 @@ type writer struct {
 	w io.Writer
 }
 
-// Implements the frame interface for Connection RPC
+// Implements the frame interface for Connection RPC tcp连接建立后客户端发送的第一个帧
 type protocolHeader struct{}
 
 func (protocolHeader) write(w io.Writer) error {
@@ -346,8 +347,11 @@ func (protocolHeader) channel() uint16 {
 /*
 Method frames carry the high-level protocol commands (which we call "methods"). 协议命令
 
-One method frame carries one command.  The method frame payload has this format:
+One method frame carries one command. 一个方法在一个帧里
+The method frame payload has this format:
 方法帧, 在负载里
+class-id 区分 connection,channel,exchange,queue,tx,
+method-id 区分方法
   0          2           4
   +----------+-----------+-------------- - -
   | class-id | method-id | arguments...
@@ -356,15 +360,13 @@ One method frame carries one command.  The method frame payload has this format:
 
 To process a method frame, we:
  1. Read the method frame payload.
- 2. Unpack it into a structure.  A given method always has the same structure,
- so we can unpack the method rapidly.
- 3. Check that the method is allowed in the current context.
+ 2. Unpack it into a structure.  A given给定 method always has the same structure, so we can unpack the method rapidly.
+ 3. Check that the method is allowed in the current context. // allow??
  4. Check that the method arguments are valid.
- 5. Execute the method.
+ 5. Execute the method. //调用方法
 
-Method frame bodies are constructed as a list of AMQP data fields (bits,
-integers, strings and string tables).  The marshalling code is trivially
-generated directly from the protocol specifications, and can be very rapid.
+Method frame bodies are constructed as a list of AMQP data fields (bits, integers, strings and string tables). 字段列表
+The marshalling code is trivially琐碎的 generated directly from the protocol specifications, and can be very rapid.
 */
 type methodFrame struct {
 	ChannelId uint16
@@ -405,13 +407,14 @@ func (f *methodFrame) reader(r io.Reader) (n int, err error) {
 }
 
 /*
-Heartbeating is a technique designed to undo one of TCP/IP's features, namely
-its ability to recover from a broken physical connection by closing only after
-a quite long time-out.  In some scenarios we need to know very rapidly if a
-peer is disconnected or not responding for other reasons (e.g. it is looping).
+Heartbeating is a technique designed to undo one of TCP/IP's features, namely 防止tcp超时断连
+its ability to recover from a broken physical connection by closing only after a quite long time-out.
+In some scenarios we need to know very rapidly if a peer is disconnected or not responding for other reasons (e.g.
+it is looping).
+
 Since heartbeating can be done at a low level, we implement this as a special
-type of frame that peers exchange at the transport level, rather than as a
-class method.
+type of frame that peers exchange at the transport level, rather than as a class method.
+因为可以在低层次实现, 所以特别实现一种帧, 在传输层对等交换, 而不是一个普通的方法帧
 */
 type heartbeatFrame struct {
 	ChannelId uint16
@@ -424,9 +427,9 @@ func (f *heartbeatFrame) read(p []byte) (n int, err error) {
 }
 
 /*
-Certain methods (such as Basic.Publish, Basic.Deliver, etc.) are formally
-defined as carrying content.  When a peer sends such a method frame, it always
-follows it with a content header and zero or more content body frames.
+Certain methods (such as Basic.Publish, Basic.Deliver, etc.) are formally defined as carrying content. 携带内容
+When a peer sends such a method frame,
+it always follows it with a content header and zero or more content body frames. 对于此类方法帧, 后面会带头部帧和0-多个方法帧
 
 A content header frame has this format:
 
@@ -438,17 +441,17 @@ A content header frame has this format:
 
 We place content body in distinct frames (rather than including it in the
 method) so that AMQP may support "zero copy" techniques in which content is
-never marshalled or encoded.  We place the content properties in their own
-frame so that recipients can selectively discard contents they do not want to
-process
+never marshalled or encoded. 0拷贝
+We place the content properties in their own frame so that recipients can selectively discard contents they do not
+want to process
 */
 type headerFrame struct {
 	ChannelId     uint16
-	ClassId       uint16
-	weight        uint16
+	ClassId       uint16 // 方法帧的classID
+	weight        uint16 // 未使用, 必须是0
 	Size          uint64
-	propertyFlags uint16
-	Properties    properties
+	propertyFlags uint16     // bit array
+	Properties    properties // data field array
 }
 
 func (f *headerFrame) channel() uint16 { return f.ChannelId }
@@ -484,15 +487,16 @@ func (f *headerFrame) read(p []byte) (n int, err error) {
 }
 
 /*
-Content is the application data we carry from client-to-client via the AMQP server.
-Content is, roughly speaking, a set of properties plus a binary data part.
+Content is the application data we carry from client-to-client via the AMQP server.  client->server->client
+Content is, roughly speaking, a set of properties plus a binary data part. 整个内容, 就是头部属性+body二进制数据
 The set of allowed properties are defined by the Basic class, and these form the "content header frame".
+
 The data can be any size, and MAY be broken into several (or many) chunks, each forming a "content body frame".
 
 Looking at the frames for a specific channel, as they pass on the wire, we might see something like this:
 
 		[method]
-		[method] [header] [body] [body]
+		[method] [header] [body] [body]  //可以分成几块
 		[method]
 		...
 */

@@ -242,7 +242,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 		if err = ch.connection.send(mf); err != nil {
 			return
 		}
-		log.Printf("send methodFrame %+v \n", *mf)
+		log.Printf("->send methodFrame %+v \n", *mf)
 
 		hf := &headerFrame{
 			ChannelId:  ch.id,
@@ -253,7 +253,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 		if err = ch.connection.send(hf); err != nil {
 			return
 		}
-		log.Printf("send headerFrame %+v \n", *hf)
+		log.Printf("->send headerFrame %+v \n", *hf)
 		// chunk body into size (max frame size - frame header size)
 		for i, j := 0, size; i < len(body); i, j = j, j+size {
 			if j > len(body) {
@@ -267,7 +267,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 			if err = ch.connection.send(mf); err != nil {
 				return
 			}
-			log.Printf("send bodyFrame %+v \n", *mf)
+			log.Printf("->send bodyFrame %+v \n", *mf)
 		}
 	} else {
 		mf := &methodFrame{
@@ -275,7 +275,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 			Method:    msg,
 		}
 		err = ch.connection.send(mf)
-		log.Printf("send methodFrame %+v \n", *mf)
+		log.Printf("->send methodFrame %+v \n", *mf)
 	}
 
 	return

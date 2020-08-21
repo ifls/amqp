@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"io"
+	"log"
 	"net"
 	"reflect"
 	"strconv"
@@ -238,7 +239,7 @@ func Open(conn io.ReadWriteCloser, config Config) (*Connection, error) {
 		errors:    make(chan *Error, 1),
 		deadlines: make(chan readDeadliner, 1),
 	}
-	// 读取数据
+	// 读取mq服务器数据
 	go c.reader(conn)
 	return c, c.open(config)
 }
@@ -365,7 +366,7 @@ func (c *Connection) IsClosed() bool {
 	return atomic.LoadInt32(&c.closed) == 1
 }
 
-// 发送帧
+// 发送帧 总入库
 func (c *Connection) send(f frame) error {
 	if c.IsClosed() {
 		return ErrClosed
@@ -680,9 +681,11 @@ func (c *Connection) call(req message, res ...message) error {
 	// Special case for when the protocol header frame is sent instead of a
 	// request method
 	if req != nil {
-		if err := c.send(&methodFrame{ChannelId: 0, Method: req}); err != nil {
+		mf := &methodFrame{ChannelId: 0, Method: req}
+		if err := c.send(mf); err != nil {
 			return err
 		}
+		log.Printf("->send methodFrame %+v", *mf)
 	}
 
 	select {
@@ -719,10 +722,11 @@ func (c *Connection) call(req message, res ...message) error {
 //    close-Connection    = C:CLOSE S:CLOSE-OK
 //                        / S:CLOSE C:CLOSE-OK
 func (c *Connection) open(config Config) error {
-	if err := c.send(&protocolHeader{}); err != nil {
+	mf := &protocolHeader{}
+	if err := c.send(mf); err != nil {
 		return err
 	}
-
+	log.Printf("->send protocolHeader %+v", *mf)
 	return c.openStart(config)
 }
 
@@ -804,17 +808,18 @@ func (c *Connection) openTune(config Config, auth Authentication) error {
 	// Connection.Tune method"
 	go c.heartbeater(c.Config.Heartbeat, c.NotifyClose(make(chan *Error, 1)))
 
-	if err := c.send(&methodFrame{
+	mf := &methodFrame{
 		ChannelId: 0,
 		Method: &connectionTuneOk{
 			ChannelMax: uint16(c.Config.ChannelMax),
 			FrameMax:   uint32(c.Config.FrameSize),
 			Heartbeat:  uint16(c.Config.Heartbeat / time.Second),
 		},
-	}); err != nil {
+	}
+	if err := c.send(mf); err != nil {
 		return err
 	}
-
+	log.Printf("->send methodFrame %+v", *mf)
 	return c.openVhost(config)
 }
 
