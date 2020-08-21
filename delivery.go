@@ -14,7 +14,7 @@ var errDeliveryNotInitialized = errors.New("delivery not initialized")
 
 // Acknowledger notifies the server of successful or failed consumption of
 // delivieries via identifier found in the Delivery.DeliveryTag field.
-//
+// 通知mq服务器 消息消费成功
 // Applications can provide mock implementations in tests of Delivery handlers.
 type Acknowledger interface {
 	Ack(tag uint64, multiple bool) error
@@ -24,10 +24,11 @@ type Acknowledger interface {
 
 // Delivery captures the fields for a previously delivered message resident in 居住
 // a queue to be delivered (by the server) to a consumer from 方法(Channel.Consume or Channel.Get).
+// 调用Consumer或者Get后, 服务器发来的叫delivery
 type Delivery struct {
 	Acknowledger Acknowledger // the channel from which this delivery arrived
 
-	Headers Table // Application or header exchange table map[string]interface{}
+	Headers Table // Application or header exchange头交换机 table map[string]interface{}
 
 	// Properties
 	ContentType     string // MIME content type
@@ -53,7 +54,7 @@ type Delivery struct {
 	MessageCount uint32
 
 	DeliveryTag uint64
-	Redelivered bool
+	Redelivered bool   // 是否是重复投递
 	Exchange    string // basic.publish exchange
 	RoutingKey  string // basic.publish routing key
 
@@ -85,14 +86,14 @@ func newDelivery(channel *Channel, msg messageWithContent) *Delivery {
 
 	// Properties for the delivery types
 	switch m := msg.(type) {
-	case *basicDeliver:
+	case *basicDeliver: // consume
 		delivery.ConsumerTag = m.ConsumerTag
 		delivery.DeliveryTag = m.DeliveryTag
 		delivery.Redelivered = m.Redelivered
 		delivery.Exchange = m.Exchange
 		delivery.RoutingKey = m.RoutingKey
 
-	case *basicGetOk:
+	case *basicGetOk: // get
 		delivery.MessageCount = m.MessageCount
 		delivery.DeliveryTag = m.DeliveryTag
 		delivery.Redelivered = m.Redelivered
@@ -112,7 +113,7 @@ with autoAck true then the server will be automatically ack each message and
 this method should not be called.  Otherwise, you must call Delivery.Ack after
 you have successfully processed this delivery.
 
-When multiple is true, this delivery and all prior unacknowledged deliveries
+When multiple is true, this delivery and all prior之前的 unacknowledged deliveries
 on the same channel will be acknowledged.  This is useful for batch processing
 of deliveries.
 
@@ -132,15 +133,13 @@ func (d Delivery) Ack(multiple bool) error {
 /*
 Reject delegates a negatively acknowledgement through the Acknowledger interface.
 
-When requeue is true, queue this message to be delivered to a consumer on a
-different channel.  When requeue is false or the server is unable to queue this
-message, it will be dropped.
+When requeue is true, queue this message to be delivered to a consumer on a different channel. 发给另一个消费者
+When requeue is false or the server is unable to queue this message, it will be dropped. 丢弃
 
-If you are batch processing deliveries, and your server supports it, prefer
-Delivery.Nack.
+If you are batch processing deliveries, and your server supports it, prefer Delivery.Nack. 批处理, 优先用Nack
 
 Either Delivery.Ack, Delivery.Reject or Delivery.Nack must be called for every
-delivery that is not automatically acknowledged.
+delivery that is not automatically acknowledged. 如果不是自动确认, 3个方法必须调用一个
 */
 func (d Delivery) Reject(requeue bool) error {
 	if d.Acknowledger == nil {

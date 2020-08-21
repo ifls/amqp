@@ -16,11 +16,10 @@ import (
 )
 
 /*
-Reads a frame from an input stream and returns an interface that can be cast into
-one of the following:
+Reads a frame from an input stream and returns an interface that can be cast into one of the following:
 
    methodFrame
-   PropertiesFrame
+   PropertiesFrame  //属性帧
    bodyFrame
    heartbeatFrame
 
@@ -29,7 +28,7 @@ one of the following:
 All frames consist of a header (7 octets), a payload of arbitrary size, and a
 'frame-end' octet that detects malformed frames:
 
-  0      1         3             7                  size+7 size+8
+  0      1         3             7                  size+7       size+8
   +------+---------+-------------+  +------------+  +-----------+
   | type | channel |     size    |  |  payload   |  | frame-end |
   +------+---------+-------------+  +------------+  +-----------+
@@ -37,13 +36,12 @@ All frames consist of a header (7 octets), a payload of arbitrary size, and a
 
 To read a frame, we:
   1. Read the header and check the frame type and channel.
-	2. Depending on the frame type, we read the payload and process it.
+  2. Depending on the frame type, we read the payload and process it.
   3. Read the frame end octet.
 
-In realistic implementations where performance is a concern, we would use
-“read-ahead buffering” or
-
-“gathering reads” to avoid doing three separate system calls to read a frame.
+In realistic implementations where performance is a concern,
+we would use “read-ahead buffering” or “gathering reads” to
+avoid doing three separate system calls to read a frame. 避免三次系统调用
 */
 
 type FakerReader struct {
@@ -56,7 +54,7 @@ func (f *FakerReader) Read(p []byte) (n int, err error) {
 	fakerBytes := make([]byte, len(p), cap(p))
 	n, err = f.innerReader.Read(fakerBytes)
 	copy(p, fakerBytes)
-	printBytes("<-read", fakerBytes)
+	printBytes("<-read\n", fakerBytes)
 	parseRead(fakerBytes)
 	return
 }
@@ -116,6 +114,9 @@ func parseRead(p []byte) error {
 }
 
 func (r *reader) ReadFrame() (frame frame, err error) {
+	defer func() {
+		printFrame("read", frame)
+	}()
 	var scratch [7]byte
 
 	// 读取 7B 头部
@@ -153,7 +154,7 @@ func (r *reader) ReadFrame() (frame frame, err error) {
 		return nil, ErrFrame
 	}
 
-	// 读取最后一个字节
+	// 读取最后一个字节, 检查帧尾部, 是不是合格
 	if _, err = io.ReadFull(r.r, scratch[:1]); err != nil {
 		return nil, err
 	}
@@ -255,7 +256,7 @@ func readField(r io.Reader) (v interface{}, err error) {
 		if err = binary.Read(r, binary.BigEndian, &value); err != nil {
 			return
 		}
-		return (value != 0), nil
+		return value != 0, nil
 
 	case 'b':
 		var value [1]byte
@@ -377,6 +378,7 @@ func readArray(r io.Reader) ([]interface{}, error) {
 		err  error
 	)
 
+	// 先读size
 	if err = binary.Read(r, binary.BigEndian, &size); err != nil {
 		return nil, err
 	}
@@ -388,6 +390,7 @@ func readArray(r io.Reader) ([]interface{}, error) {
 	)
 
 	for {
+		// 再读size个字段, 通过limitReader限制
 		if field, err = readField(lim); err != nil {
 			if err == io.EOF {
 				break

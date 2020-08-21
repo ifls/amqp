@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -46,6 +47,41 @@ func printBytess(prefix string, ps ...[]byte) {
 		}
 	}
 	log.Printf(s)
+}
+
+func printMethodFrame(mf *methodFrame) {
+	mf.ClassId, mf.MethodId = mf.Method.id()
+	bts, err := json.MarshalIndent(mf, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("printMethodFrame %+v %s", mf, bts)
+}
+
+func printFrame(prefix string, mf frame) {
+	bts, err := json.MarshalIndent(mf, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("%s printFrame %+v %s", prefix, mf, bts)
+}
+
+func printHeaderFrame(mf *headerFrame) {
+	bts, err := json.MarshalIndent(mf, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("printHeaderFrame %+v %s", *mf, bts)
+}
+
+func printBodyFrame(mf *bodyFrame) {
+	bts, err := json.MarshalIndent(mf, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 为什么 marshal之后 mf.Body, 不同于%s Body
+	log.Printf("printBodyFrame %+v %s, %s", *mf, bts, mf.Body)
 }
 
 func trimBytes(p []byte) []byte {
@@ -302,7 +338,7 @@ func writeFrame(w io.Writer, typ uint8, channel uint16, payload []byte) (err err
 		byte((size & 0x000000ff) >> 0), // length 4B
 	}
 
-	printBytess("->send Frame", head, payload, end)
+	printBytess("->send\n Frame", head, payload, end)
 	// debug.PrintStack()
 	_, err = w.Write(head)
 
@@ -435,6 +471,7 @@ func writeField(w io.Writer, value interface{}) (err error) {
 
 		sec := new(bytes.Buffer)
 		for _, val := range v {
+			// 递归
 			if err = writeField(sec, val); err != nil {
 				return
 			}
@@ -486,6 +523,7 @@ func writeField(w io.Writer, value interface{}) (err error) {
 	return
 }
 
+// 帮助函数
 func writeTable(w io.Writer, table Table) (err error) {
 	var buf bytes.Buffer
 

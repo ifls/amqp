@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	maxChannelMax = (2 << 15) - 1
+	maxChannelMax = (2 << 15) - 1 // 1 <<16 - 1  max.Uint16
 
 	defaultHeartbeat         = 10 * time.Second
 	defaultConnectionTimeout = 30 * time.Second
@@ -55,7 +55,7 @@ type Config struct {
 	// ServerName from the URL is used.
 	TLSClientConfig *tls.Config
 
-	// Properties is table of properties that the client advertises to the server.
+	// Properties is table of properties that the client advertises to the server. 客户端对服务器的建议
 	// This is an optional setting - if the application does not set this,
 	// the underlying library will use a generic set of client properties.
 	Properties Table
@@ -63,7 +63,7 @@ type Config struct {
 	// Connection locale that we expect to always be en_US
 	// Even though servers must return it as per the AMQP 0-9-1 spec,
 	// we are not aware of it being used other than to satisfy the spec requirements
-	Locale string
+	Locale string // 本地语言
 
 	// Dial returns a net.Conn prepared for a TLS handshake with TSLClientConfig,
 	// then an AMQP connection handshake.
@@ -86,15 +86,15 @@ type Connection struct {
 
 	rpc       chan message
 	writer    *writer
-	sends     chan time.Time     // 发送时间戳 timestamps of each frame sent
+	sends     chan time.Time     // 每个帧发送的时间戳 timestamps of each frame sent
 	deadlines chan readDeadliner // 读到数据时用于重置 deadline heartbeater updates read deadlines
 
 	allocator *allocator          // id generator valid after openTune
 	channels  map[uint16]*Channel // 多channel 复用, 保存所有channel
 
-	noNotify bool // true when we will never notify again
-	closes   []chan *Error
-	blocks   []chan Blocking
+	noNotify bool            // true when we will never notify again
+	closes   []chan *Error   // 用于shutdown 函数里通知和关闭
+	blocks   []chan Blocking // 用于通知连接是否阻塞, 比如服务器资源不足的情况
 
 	errors chan *Error
 
@@ -298,7 +298,7 @@ method extensions connection.blocked and connection.unblocked.  Flow control is
 active with a reason when Blocking.Blocked is true.  When a Connection is
 blocked, all methods will block across all connections until server resources
 become free again.
-注册连接阻塞, 监听器
+注册连接阻塞监听器, 可以知道, 连接是否阻塞
 This optional extension is supported by the server when the
 "connection.blocked" server capability key is true.
 
@@ -378,7 +378,7 @@ func (c *Connection) send(f frame) error {
 
 	if err != nil {
 		// shutdown could be re-entrant from signaling notify chans
-		go c.shutdown(&Error{
+		go c.shutdown(&Error{ // 关闭连接
 			Code:   FrameError,
 			Reason: err.Error(),
 		})
@@ -450,6 +450,7 @@ func (c *Connection) demux(f frame) {
 	}
 }
 
+// 连接级别
 func (c *Connection) dispatch0(f frame) {
 	switch mf := f.(type) {
 	case *methodFrame: // 方法帧
@@ -471,7 +472,7 @@ func (c *Connection) dispatch0(f frame) {
 				c <- Blocking{Active: false}
 			}
 		default:
-			c.rpc <- m
+			c.rpc <- m // 发到rpc??
 		}
 	case *heartbeatFrame:
 	// 心跳帧
@@ -517,7 +518,7 @@ func (c *Connection) dispatchClosed(f frame) {
 				ChannelId: f.channel(),
 				Method:    &channelCloseOk{},
 			})
-		case *channelCloseOk:
+		case *channelCloseOk: // 已关闭的channel 收到ok
 			// we are already closed, so do nothing
 		default:
 			// unexpected method on closed channel
@@ -574,7 +575,7 @@ func (c *Connection) heartbeater(interval time.Duration, done chan *Error) {
 		case at, stillSending := <-c.sends:
 			// When actively sending, depend on sent frames to reset server timer
 			if stillSending {
-				lastSent = at
+				lastSent = at // 更新最新发送的时间戳, 避免不必要的心跳包
 			} else {
 				return
 			}
@@ -685,7 +686,7 @@ func (c *Connection) call(req message, res ...message) error {
 		if err := c.send(mf); err != nil {
 			return err
 		}
-		log.Printf("->send methodFrame %+v", *mf)
+		printMethodFrame(mf)
 	}
 
 	select {
@@ -726,7 +727,7 @@ func (c *Connection) open(config Config) error {
 	if err := c.send(mf); err != nil {
 		return err
 	}
-	log.Printf("->send protocolHeader %+v", *mf)
+	log.Printf("->send\n protocolHeader %+v", *mf)
 	return c.openStart(config)
 }
 
@@ -758,6 +759,7 @@ func (c *Connection) openStart(config Config) error {
 	return c.openTune(config, auth)
 }
 
+// 对当前连接, 设置与服务器相关的属性
 func (c *Connection) openTune(config Config, auth Authentication) error {
 	if len(config.Properties) == 0 {
 		config.Properties = Table{
@@ -806,6 +808,7 @@ func (c *Connection) openTune(config Config, auth Authentication) error {
 
 	// "The client should start sending heartbeats after receiving a
 	// Connection.Tune method"
+	// 发送心跳
 	go c.heartbeater(c.Config.Heartbeat, c.NotifyClose(make(chan *Error, 1)))
 
 	mf := &methodFrame{
@@ -819,7 +822,7 @@ func (c *Connection) openTune(config Config, auth Authentication) error {
 	if err := c.send(mf); err != nil {
 		return err
 	}
-	log.Printf("->send methodFrame %+v", *mf)
+	printMethodFrame(mf)
 	return c.openVhost(config)
 }
 

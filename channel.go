@@ -6,7 +6,6 @@
 package amqp
 
 import (
-	"log"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -25,10 +24,10 @@ Errors on methods with this Channel as a receiver means this channel
 should be discarded and a new channel established.
 */
 type Channel struct {
-	destructor sync.Once  // 保证shutdown函数, 不会重复调用
-	m          sync.Mutex // struct field mutex
-	confirmM   sync.Mutex // publisher confirms state mutex
-	notifyM    sync.RWMutex
+	destructor sync.Once    // 保证shutdown函数, 不会重复调用
+	m          sync.Mutex   // struct field mutex
+	confirmM   sync.Mutex   // publisher confirms state mutex
+	notifyM    sync.RWMutex //
 
 	connection *Connection
 
@@ -167,8 +166,7 @@ func (ch *Channel) open() error {
 	return ch.call(&channelOpen{}, &channelOpenOk{})
 }
 
-// Performs a request/response call for when the message is not NoWait and is
-// specified as Synchronous.
+// Performs a request/response call for when the message is not NoWait and is specified as Synchronous.
 func (ch *Channel) call(req message, res ...message) error {
 	if err := ch.send(req); err != nil {
 		return err
@@ -183,7 +181,7 @@ func (ch *Channel) call(req message, res ...message) error {
 			}
 			return ErrClosed
 
-		case msg := <-ch.rpc: // connection read 发到rpc, 再从rpc接口
+		case msg := <-ch.rpc: // connection read 发到rpc, 再从rpc接口接收
 			if msg != nil {
 				for _, try := range res {
 					if reflect.TypeOf(msg) == reflect.TypeOf(try) {
@@ -242,7 +240,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 		if err = ch.connection.send(mf); err != nil {
 			return
 		}
-		log.Printf("->send methodFrame %+v \n", *mf)
+		printMethodFrame(mf)
 
 		hf := &headerFrame{
 			ChannelId:  ch.id,
@@ -253,8 +251,8 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 		if err = ch.connection.send(hf); err != nil {
 			return
 		}
-		log.Printf("->send headerFrame %+v \n", *hf)
-		// chunk body into size (max frame size - frame header size)
+		printHeaderFrame(hf)
+		// 切分成多块 chunk body into size (max frame size - frame header size)
 		for i, j := 0, size; i < len(body); i, j = j, j+size {
 			if j > len(body) {
 				j = len(body)
@@ -267,7 +265,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 			if err = ch.connection.send(mf); err != nil {
 				return
 			}
-			log.Printf("->send bodyFrame %+v \n", *mf)
+			printBodyFrame(mf)
 		}
 	} else {
 		mf := &methodFrame{
@@ -275,7 +273,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 			Method:    msg,
 		}
 		err = ch.connection.send(mf)
-		log.Printf("->send methodFrame %+v \n", *mf)
+		printMethodFrame(mf)
 	}
 
 	return
@@ -352,7 +350,7 @@ func (ch *Channel) transition(f func(*Channel, frame) error) error {
 	return nil
 }
 
-// 接收物理帧
+// 接收方法帧
 func (ch *Channel) recvMethod(f frame) error {
 	switch frame := f.(type) {
 	case *methodFrame:
@@ -377,6 +375,7 @@ func (ch *Channel) recvMethod(f frame) error {
 	panic("unexpected frame type")
 }
 
+// 接收header帧
 func (ch *Channel) recvHeader(f frame) error {
 	switch frame := f.(type) {
 	case *methodFrame:
@@ -402,8 +401,8 @@ func (ch *Channel) recvHeader(f frame) error {
 	panic("unexpected frame type")
 }
 
-// state after method + header and before the length
-// defined by the header has been reached
+// state after method + header and before the length defined by the header has been reached
+// 接收body
 func (ch *Channel) recvContent(f frame) error {
 	switch frame := f.(type) {
 	case *methodFrame:
@@ -504,6 +503,7 @@ desire to interleave consumers and producers in the same process to avoid your
 basic.ack messages from getting rate limited with your basic.publish messages.
 
 */
+// flow到底是什么?
 func (ch *Channel) NotifyFlow(c chan bool) chan bool {
 	ch.notifyM.Lock()
 	defer ch.notifyM.Unlock()
@@ -566,6 +566,7 @@ ordered Ack and Nack DeliveryTag to the respective channels.
 
 For strict ordering, use NotifyPublish instead.
 */
+// 封装了NotifyPublish
 func (ch *Channel) NotifyConfirm(ack, nack chan uint64) (chan uint64, chan uint64) {
 	confirms := ch.NotifyPublish(make(chan Confirmation, cap(ack)+cap(nack)))
 
@@ -609,6 +610,8 @@ It's advisable to wait for all Confirmations to arrive before calling
 Channel.Close() or Connection.Close().
 
 */
+
+// 监听发布成功
 func (ch *Channel) NotifyPublish(confirm chan Confirmation) chan Confirmation {
 	ch.notifyM.Lock()
 	defer ch.notifyM.Unlock()
@@ -803,6 +806,8 @@ non-existent queue will cause RabbitMQ to throw an exception.
 This function can be used to test for the existence of a queue.
 
 */
+
+// passive 是有什么区别???
 func (ch *Channel) QueueDeclarePassive(name string, durable, autoDelete, exclusive, noWait bool, args Table) (Queue, error) {
 	if err := args.Validate(); err != nil {
 		return Queue{}, err
@@ -846,7 +851,7 @@ If the queue by this name exists, use Channel.QueueDeclare check if it is
 declared with specific parameters.
 
 If a queue by this name does not exist, an error will be returned and the
-channel will be closed. 队列不存在, 会返回错误
+channel will be closed. 队列不存在, 会返回错误,而不是声明
 
 */
 func (ch *Channel) QueueInspect(name string) (Queue, error) {
