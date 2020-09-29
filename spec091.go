@@ -50,119 +50,181 @@ const (
 
 var methodMap map[string]int
 
+// 参考协议 https://www.rabbitmq.com/amqp-0-9-1-reference.html#exchange.declare.internal
 func init() {
 	methodMap = make(map[string]int)
 	// connection
-	// 开始连接协商
+	// S->C 建立连接 开始连接协商过程
 	methodMap["connectionStart"] = 10<<8 + 10
+	// C->S 选择SASL安全机制和locale
 	methodMap["connectionStartOk"] = 10<<8 + 11
-
+	// S->C 要求客户端提供更多信息,以认证
 	methodMap["connectionSecure"] = 10<<8 + 20
+	// C->S 发送认证信息
 	methodMap["connectionSecureOk"] = 10<<8 + 21
-
+	// S->C 发送建议的连接级别的配置
 	methodMap["connectionTune"] = 10<<8 + 30 // 5
+	// C->S 配置协商结果反馈
 	methodMap["connectionTuneOk"] = 10<<8 + 31
 
+	// C->S 打开一个到虚拟节点的连接
 	methodMap["connectionOpen"] = 10<<8 + 40
+	// S->C 通知客户端 连接可用
 	methodMap["connectionOpenOk"] = 10<<8 + 41
 
+	// C->S or S->C 表示想要关闭连接
 	methodMap["connectionClose"] = 10<<8 + 50
+	// C->S or S->C 确认连接关闭, 接收者可以释放资源关闭socket连接
 	methodMap["connectionCloseOk"] = 10<<8 + 51 // 10
 
+	// 拓展协议 https://www.rabbitmq.com/connection-blocked.html
+	// S->C 指示连接被阻塞了, 不接受新的发布, 服务器通知客户端, 资源太少, 需要被阻塞
 	methodMap["connectionBlocked"] = 10<<8 + 60
 
+	// S->C 指示连接阻塞解除了, 接受新的发布
 	methodMap["connectionUnblocked"] = 10<<8 + 61
 
 	// channel
+	// C->S 打开一个对服务器的channel
 	methodMap["channelOpen"] = 20<<8 + 10
+	// S->C 通知客户端 channel可用
 	methodMap["channelOpenOk"] = 20<<8 + 11
 
+	// C->S or S->C 通知对端停止或者重启  流空, 避免过量, 不影响get获取, 只影响consumer和publish
 	methodMap["channelFlow"] = 20<<8 + 20 // 15
+	// C->S or S->C 向对方确认 已收到或者已处理
 	methodMap["channelFlowOk"] = 20<<8 + 21
 
+	// C->S or S->C 请求关闭一个Channel, 可能是因为被进程强制关闭或者发生了一个错误
 	methodMap["channelClose"] = 20<<8 + 40
+	// C->S or S->C 确认关闭, 通知接收者可以释放channel的资源
 	methodMap["channelCloseOk"] = 20<<8 + 41
 
 	// exchange
+	// C->S 创建如果不存在, 如果已存在, 验证交换机是正确的以及期望的类型
 	methodMap["exchangeDeclare"] = 40<<8 + 10
+	// S->C 确认, 返回名字
 	methodMap["exchangeDeclareOk"] = 40<<8 + 11 // 20
 
+	// C->S 删除交换机
 	methodMap["exchangeDelete"] = 40<<8 + 20
+	// S->C 确认删除
 	methodMap["exchangeDeleteOk"] = 40<<8 + 21
 
+	// C->S 绑定交换机到交换机
 	methodMap["exchangeBind"] = 40<<8 + 30
+	// S->C 返回绑定成功
 	methodMap["exchangeBindOk"] = 40<<8 + 31
 
+	// C->S 解除绑定 交换机到交换机
 	methodMap["exchangeUnbind"] = 40<<8 + 40
+	// S->C 返回解绑成功
 	methodMap["exchangeUnbindOk"] = 40<<8 + 51
 
 	// queue
+	// C->S 创建或者检查队列,
 	methodMap["queueDeclare"] = 50<<8 + 10
+	// S->C 确认, 确认返回名字
 	methodMap["queueDeclareOk"] = 50<<8 + 11
 
+	// C->S 队列绑定交换机
 	methodMap["queueBind"] = 50<<8 + 20
+	// S->C 确认绑定成功
 	methodMap["queueBindOk"] = 50<<8 + 21 // 30
 
+	// C->S 队列解除绑定交换机
 	methodMap["queueUnbind"] = 50<<8 + 50
+	// S->C 确认解除绑定成功
 	methodMap["queueUnbindOk"] = 50<<8 + 51
 
+	// C->S 删除所有非等待消费确认的消息, 此队列, 正在消费的不能删除
 	methodMap["queuePurge"] = 50<<8 + 30
+	// S->C 确认删除成功
 	methodMap["queuePurgeOk"] = 50<<8 + 31
 
+	// C->S 删除队列, 消息会被发送死信队列(如果定义配置了), 所有消费者都会被取消
 	methodMap["queueDelete"] = 50<<8 + 40
+	// S->C 确认队列的删除
 	methodMap["queueDeleteOk"] = 50<<8 + 41
 
 	// basic
+	// C->S 请求特定服务质量, 可以针对channel和connection两种级别
 	methodMap["basicQos"] = 60<<8 + 10
+	// S->C
 	methodMap["basicQosOk"] = 60<<8 + 11
 
+	// C->S 要求服务器开始一个消费者, 生命周期直到channel结束或者cancel掉
 	methodMap["basicConsume"] = 60<<8 + 20
+	// S->C 给客户端一个consumerTag, 用于之后的消费者相关的调用
 	methodMap["basicConsumeOk"] = 60<<8 + 21 // 40
 
+	// C->S 取消一个消费者, 不影响已经递送的消息
 	methodMap["basicCancel"] = 60<<8 + 30
+	// S->C 确认取消消费者完成
 	methodMap["basicCancelOk"] = 60<<8 + 31
 
+	// C->S 发送消息 到指定交换机, 消息将被路由到一个队列
 	methodMap["basicPublish"] = 60<<8 + 40
 
+	// This method returns an undeliverable message that was published with the "immediate" flag set, or an
+	// unroutable message published with the "mandatory" flag set
+	// S->C 返回 一个未交付的消息(立刻immediate发布的消息或者无法路由的消息mandatory)
 	methodMap["basicReturn"] = 60<<8 + 50
 
+	// S->C 递送一个消息给客户端
 	methodMap["basicDeliver"] = 60<<8 + 60
 
+	// C->S 请求同步获取一条消息, 性能低
 	methodMap["basicGet"] = 60<<8 + 70
+	// S->C 响应消息
 	methodMap["basicGetOk"] = 60<<8 + 71
+	// S->C 响应无消息
 	methodMap["basicGetEmpty"] = 60<<8 + 72
 
+	// C->S 确认消费
 	methodMap["basicAck"] = 60<<8 + 80
 
+	// C->S 拒绝消费
 	methodMap["basicReject"] = 60<<8 + 90 // 50
 
+	// C->S 要求服务器重新递送, 在特定的channel上, 目前已弃用
 	methodMap["basicRecoverAsync"] = 60<<8 + 100
 
+	// C->S 要求服务器重新递送未确认的消息, 在特定的channel上
 	methodMap["basicRecover"] = 60<<8 + 110
+	// S->C 确认Recover
 	methodMap["basicRecoverOk"] = 60<<8 + 111
 
+	// C->S 拒绝一个或者多个消息
 	methodMap["basicNack"] = 60<<8 + 120
 
 	// tx
+	// C->S 开启事务模式, 在使用commit or rollback 之前必须调用一次 channel级别
 	methodMap["txSelect"] = 90<<8 + 10
+	// S->C 确认此channel开启事务模式
 	methodMap["txSelectOk"] = 90<<8 + 11
 
+	// C->S 提交当前事务所有发布和确认, 之后新的事务立刻开启
 	methodMap["txCommit"] = 90<<8 + 20
+	// S->C 确认提交成功, 如果提交失败, 服务器触发一个channel级的异常
 	methodMap["txCommitOk"] = 90<<8 + 21
 
+	// C->S 丢弃所有, 新事务开启, 未确认的消息不会自动重发, 需要 主动recover
 	methodMap["txRollback"] = 90<<8 + 30
+	// S->C 确认rollback成功, 如果rollback失败, 服务器触发一个channel级的异常
 	methodMap["txRollbackOk"] = 90<<8 + 31 // 60
 
-	// confirm
+	// confirm 进入确认模式, 服务器必须确认收到的所有消息
+	// C->S rabbitmq 实现的 amqp0-9-1规范的拓展 https://www.rabbitmq.com/extensions.html
 	methodMap["confirmSelect"] = 85<<8 + 10
 	methodMap["confirmSelectOk"] = 85<<8 + 11
 }
 
 func isSoftExceptionCode(code int) bool {
 	switch code {
-	case 311:
+	case 311: // body太大
 		return true
-	case 312:
+	case 312: //
 		return true
 	case 313:
 		return true
@@ -180,11 +242,11 @@ func isSoftExceptionCode(code int) bool {
 }
 
 type connectionStart struct {
-	VersionMajor     byte
-	VersionMinor     byte
-	ServerProperties Table
-	Mechanisms       string
-	Locales          string
+	VersionMajor     byte   // amqp 协议大版本
+	VersionMinor     byte   // amqp 协议小版本
+	ServerProperties Table  // 服务器属性
+	Mechanisms       string // 可用的安全机制
+	Locales          string // 可用的locale
 }
 
 // classID,methodID
@@ -243,10 +305,10 @@ func (msg *connectionStart) read(r io.Reader) (err error) {
 }
 
 type connectionStartOk struct {
-	ClientProperties Table
-	Mechanism        string
-	Response         string
-	Locale           string
+	ClientProperties Table  // 客户端属性
+	Mechanism        string // 选择的安全机制
+	Response         string // 安全响应数据
+	Locale           string // 选择的locale
 }
 
 func (msg *connectionStartOk) id() (uint16, uint16) {
@@ -299,8 +361,9 @@ func (msg *connectionStartOk) read(r io.Reader) (err error) {
 	return
 }
 
+// S->C
 type connectionSecure struct {
-	Challenge string
+	Challenge string // 请求客户端安全认证, 安全要求数据
 }
 
 func (msg *connectionSecure) id() (uint16, uint16) {
@@ -330,7 +393,7 @@ func (msg *connectionSecure) read(r io.Reader) (err error) {
 }
 
 type connectionSecureOk struct {
-	Response string
+	Response string // 安全响应数据
 }
 
 func (msg *connectionSecureOk) id() (uint16, uint16) {
@@ -360,9 +423,9 @@ func (msg *connectionSecureOk) read(r io.Reader) (err error) {
 }
 
 type connectionTune struct {
-	ChannelMax uint16
-	FrameMax   uint32
-	Heartbeat  uint16
+	ChannelMax uint16 // 建议的最大channel数量
+	FrameMax   uint32 // 建议的最大帧大小
+	Heartbeat  uint16 // 渴望的心跳延迟
 }
 
 func (msg *connectionTune) id() (uint16, uint16) {
@@ -408,9 +471,9 @@ func (msg *connectionTune) read(r io.Reader) (err error) {
 }
 
 type connectionTuneOk struct {
-	ChannelMax uint16
-	FrameMax   uint32
-	Heartbeat  uint16
+	ChannelMax uint16 // 协商的最大channels
+	FrameMax   uint32 // 协商的最大帧大小
+	Heartbeat  uint16 // 渴望的心跳延迟
 }
 
 func (msg *connectionTuneOk) id() (uint16, uint16) {
@@ -456,7 +519,7 @@ func (msg *connectionTuneOk) read(r io.Reader) (err error) {
 }
 
 type connectionOpen struct {
-	VirtualHost string
+	VirtualHost string // 虚拟主机名
 	reserved1   string
 	reserved2   bool
 }
@@ -541,8 +604,8 @@ func (msg *connectionOpenOk) read(r io.Reader) (err error) {
 type connectionClose struct {
 	ReplyCode uint16
 	ReplyText string
-	ClassId   uint16
-	MethodId  uint16
+	ClassId   uint16 // 指示哪个类比的哪个方法导致了异常(如果是因为执行异常关闭)
+	MethodId  uint16 // 如上
 }
 
 func (msg *connectionClose) id() (uint16, uint16) {
@@ -615,7 +678,7 @@ func (msg *connectionCloseOk) read(r io.Reader) (err error) {
 }
 
 type connectionBlocked struct {
-	Reason string
+	Reason string // 阻塞的理由
 }
 
 func (msg *connectionBlocked) id() (uint16, uint16) {
@@ -726,7 +789,7 @@ func (msg *channelOpenOk) read(r io.Reader) (err error) {
 }
 
 type channelFlow struct {
-	Active bool
+	Active bool // 重启或停止
 }
 
 func (msg *channelFlow) id() (uint16, uint16) {
@@ -763,7 +826,7 @@ func (msg *channelFlow) read(r io.Reader) (err error) {
 }
 
 type channelFlowOk struct {
-	Active bool
+	Active bool // 当前的流设置
 }
 
 func (msg *channelFlowOk) id() (uint16, uint16) {
@@ -802,8 +865,8 @@ func (msg *channelFlowOk) read(r io.Reader) (err error) {
 type channelClose struct {
 	ReplyCode uint16
 	ReplyText string
-	ClassId   uint16
-	MethodId  uint16
+	ClassId   uint16 // 指示哪个类比的哪个方法导致了异常(如果是因为执行异常关闭)
+	MethodId  uint16 // 如上
 }
 
 func (msg *channelClose) id() (uint16, uint16) {
@@ -877,14 +940,14 @@ func (msg *channelCloseOk) read(r io.Reader) (err error) {
 
 type exchangeDeclare struct {
 	reserved1  uint16
-	Exchange   string
-	Type       string
-	Passive    bool
-	Durable    bool
-	AutoDelete bool
-	Internal   bool
-	NoWait     bool
-	Arguments  Table
+	Exchange   string // 交换机名字
+	Type       string // 交换机类型
+	Passive    bool   // 不要创建交换机, 只是检查
+	Durable    bool   // 创建持久交换机
+	AutoDelete bool   // 绑定的队列解绑后, 如果没有一个队列与之绑定, 则删除此交换机
+	Internal   bool   // 内部交换机, 不能直接发布消息到此交换机
+	NoWait     bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
+	Arguments  Table  // 额外参数, 取决于服务器实现, 支持 死信队列, ttl
 }
 
 func (msg *exchangeDeclare) id() (uint16, uint16) {
@@ -993,9 +1056,9 @@ func (msg *exchangeDeclareOk) read(r io.Reader) (err error) {
 
 type exchangeDelete struct {
 	reserved1 uint16
-	Exchange  string
-	IfUnused  bool
-	NoWait    bool
+	Exchange  string // 交换机名字
+	IfUnused  bool   // true, 表示只在未使用时删除
+	NoWait    bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
 }
 
 func (msg *exchangeDelete) id() (uint16, uint16) {
@@ -1273,13 +1336,13 @@ func (msg *exchangeUnbindOk) read(r io.Reader) (err error) {
 
 type queueDeclare struct {
 	reserved1  uint16
-	Queue      string
-	Passive    bool
-	Durable    bool
-	Exclusive  bool
-	AutoDelete bool
-	NoWait     bool
-	Arguments  Table
+	Queue      string // 队列名
+	Passive    bool   // 不创建队列
+	Durable    bool   // 创建持久队列
+	Exclusive  bool   // 只能由当前连接访问, 连接中断, 队列就删除了
+	AutoDelete bool   // 没有用了就自动删除
+	NoWait     bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
+	Arguments  Table  // 额外参数, 取决于服务器实现
 }
 
 func (msg *queueDeclare) id() (uint16, uint16) {
@@ -1360,9 +1423,9 @@ func (msg *queueDeclare) read(r io.Reader) (err error) {
 }
 
 type queueDeclareOk struct {
-	Queue         string
-	MessageCount  uint32
-	ConsumerCount uint32
+	Queue         string // 队列名
+	MessageCount  uint32 // 队列里的消息数量
+	ConsumerCount uint32 // 队列当前的消费者数量
 }
 
 func (msg *queueDeclareOk) id() (uint16, uint16) {
@@ -1407,11 +1470,11 @@ func (msg *queueDeclareOk) read(r io.Reader) (err error) {
 
 type queueBind struct {
 	reserved1  uint16
-	Queue      string
-	Exchange   string
-	RoutingKey string
-	NoWait     bool
-	Arguments  Table
+	Queue      string // 队列名, 如果队列名为空, 服务器使用channel上最后声明的队列
+	Exchange   string // 交换机名
+	RoutingKey string // 队列 路由键 绑定键
+	NoWait     bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
+	Arguments  Table  // 参数, 服务器实现特定
 }
 
 func (msg *queueBind) id() (uint16, uint16) {
@@ -1506,10 +1569,10 @@ func (msg *queueBindOk) read(r io.Reader) (err error) {
 
 type queueUnbind struct {
 	reserved1  uint16
-	Queue      string
-	Exchange   string
-	RoutingKey string
-	Arguments  Table
+	Queue      string // 队列名
+	Exchange   string // 交换机名
+	RoutingKey string // 路由键
+	Arguments  Table  // 参数
 }
 
 func (msg *queueUnbind) id() (uint16, uint16) {
@@ -1589,8 +1652,8 @@ func (msg *queueUnbindOk) read(r io.Reader) (err error) {
 
 type queuePurge struct {
 	reserved1 uint16
-	Queue     string
-	NoWait    bool
+	Queue     string // 队列名
+	NoWait    bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
 }
 
 func (msg *queuePurge) id() (uint16, uint16) {
@@ -1643,7 +1706,7 @@ func (msg *queuePurge) read(r io.Reader) (err error) {
 }
 
 type queuePurgeOk struct {
-	MessageCount uint32
+	MessageCount uint32 // 有多少个消息被清洗了
 }
 
 func (msg *queuePurgeOk) id() (uint16, uint16) {
@@ -1674,10 +1737,10 @@ func (msg *queuePurgeOk) read(r io.Reader) (err error) {
 
 type queueDelete struct {
 	reserved1 uint16
-	Queue     string
-	IfUnused  bool
-	IfEmpty   bool
-	NoWait    bool
+	Queue     string // 队列名
+	IfUnused  bool   // 未使用才删除
+	IfEmpty   bool   // 没有消息才删除
+	NoWait    bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
 }
 
 func (msg *queueDelete) id() (uint16, uint16) {
@@ -1740,7 +1803,7 @@ func (msg *queueDelete) read(r io.Reader) (err error) {
 }
 
 type queueDeleteOk struct {
-	MessageCount uint32
+	MessageCount uint32 // 有多少个消息被删除了
 }
 
 func (msg *queueDeleteOk) id() (uint16, uint16) {
@@ -1769,10 +1832,10 @@ func (msg *queueDeleteOk) read(r io.Reader) (err error) {
 	return
 }
 
-type basicQos struct {
-	PrefetchSize  uint32 // 字节数
-	PrefetchCount uint16 // 消息数
-	Global        bool   // 是否是全局配置
+type basicQos struct { // 当前只对服务器端有意义
+	PrefetchSize  uint32 // 预取窗口 字节数
+	PrefetchCount uint16 // 预取窗口 消息数
+	Global        bool   // 是否是全connection配置还是channel配置
 }
 
 func (msg *basicQos) id() (uint16, uint16) {
@@ -1847,13 +1910,14 @@ func (msg *basicQosOk) read(r io.Reader) (err error) {
 
 type basicConsume struct {
 	reserved1   uint16
-	Queue       string
-	ConsumerTag string
-	NoLocal     bool
-	NoAck       bool
-	Exclusive   bool
-	NoWait      bool
-	Arguments   Table
+	Queue       string // 队列名
+	ConsumerTag string // 指定消费者标志, 只属于channel级别, 如果为"", 服务器会生成一个tag
+	NoLocal     bool   // 不会发送回给此连接上的所有channel, 也就是不会转回来 https://www.rabbitmq.com/amqp-0-9-1-reference.html#domain.
+	// no-local
+	NoAck     bool // 不需要ack,reject,nack 之类的回复
+	Exclusive bool // 消费的排他性, 只有此消费者, 能访问此服务
+	NoWait    bool //
+	Arguments Table
 }
 
 func (msg *basicConsume) id() (uint16, uint16) {
@@ -1935,7 +1999,7 @@ func (msg *basicConsume) read(r io.Reader) (err error) {
 }
 
 type basicConsumeOk struct {
-	ConsumerTag string
+	ConsumerTag string // 返回确定的tag, 用于取消消费指定消费者
 }
 
 func (msg *basicConsumeOk) id() (uint16, uint16) {
@@ -1965,7 +2029,7 @@ func (msg *basicConsumeOk) read(r io.Reader) (err error) {
 }
 
 type basicCancel struct {
-	ConsumerTag string
+	ConsumerTag string // 取消消费
 	NoWait      bool
 }
 
@@ -2011,7 +2075,7 @@ func (msg *basicCancel) read(r io.Reader) (err error) {
 }
 
 type basicCancelOk struct {
-	ConsumerTag string
+	ConsumerTag string // 返回取消消费成功的tag
 }
 
 func (msg *basicCancelOk) id() (uint16, uint16) {
@@ -2044,8 +2108,8 @@ type basicPublish struct {
 	reserved1  uint16
 	Exchange   string
 	RoutingKey string
-	Mandatory  bool
-	Immediate  bool
+	Mandatory  bool // 立即强制路由, 如果消息不能路由, 以Return返回, false,则直接丢弃
+	Immediate  bool // 减少延迟, 请求立刻分发, 如果消息不能立即交给消费者, 以Return返回, false,则直接排队
 	Properties properties
 	Body       []byte
 }
@@ -2124,7 +2188,7 @@ type basicReturn struct {
 	Exchange   string
 	RoutingKey string
 	Properties properties
-	Body       []byte
+	Body       []byte // 消息
 }
 
 func (msg *basicReturn) id() (uint16, uint16) {
@@ -2183,12 +2247,12 @@ func (msg *basicReturn) read(r io.Reader) (err error) {
 
 type basicDeliver struct {
 	ConsumerTag string
-	DeliveryTag uint64
-	Redelivered bool
+	DeliveryTag uint64 // 服务器指定的, channel特定的, 不能用0值, 0保留客户端使用, 表示到目前为止收到的所有消息
+	Redelivered bool   // 之前是否会发送到这个或者其他客户端
 	Exchange    string
 	RoutingKey  string
 	Properties  properties
-	Body        []byte
+	Body        []byte // 消息体
 }
 
 func (msg *basicDeliver) id() (uint16, uint16) {
@@ -2265,7 +2329,7 @@ func (msg *basicDeliver) read(r io.Reader) (err error) {
 type basicGet struct {
 	reserved1 uint16
 	Queue     string
-	NoAck     bool
+	NoAck     bool // 不进行ack流程
 }
 
 func (msg *basicGet) id() (uint16, uint16) {
@@ -2318,11 +2382,11 @@ func (msg *basicGet) read(r io.Reader) (err error) {
 }
 
 type basicGetOk struct {
-	DeliveryTag  uint64
-	Redelivered  bool
+	DeliveryTag  uint64 // 唯一id
+	Redelivered  bool   // 重递送
 	Exchange     string
 	RoutingKey   string
-	MessageCount uint32
+	MessageCount uint32 // 队列里的消息数量
 	Properties   properties
 	Body         []byte
 }
@@ -2430,7 +2494,7 @@ func (msg *basicGetEmpty) read(r io.Reader) (err error) {
 
 type basicAck struct {
 	DeliveryTag uint64
-	Multiple    bool
+	Multiple    bool // 确认之前到现在的多个消息
 }
 
 func (msg *basicAck) id() (uint16, uint16) {
@@ -2476,7 +2540,7 @@ func (msg *basicAck) read(r io.Reader) (err error) {
 
 type basicReject struct {
 	DeliveryTag uint64
-	Requeue     bool
+	Requeue     bool // 重新入队, false, 或者入队失败, 就会丢弃或者到死信队列
 }
 
 func (msg *basicReject) id() (uint16, uint16) {
@@ -2521,7 +2585,7 @@ func (msg *basicReject) read(r io.Reader) (err error) {
 }
 
 type basicRecoverAsync struct {
-	Requeue bool
+	Requeue bool // false, 则重新发送给原来的消费者, true, 则会入队, 会发给其他消费者
 }
 
 func (msg *basicRecoverAsync) id() (uint16, uint16) {
@@ -2558,7 +2622,7 @@ func (msg *basicRecoverAsync) read(r io.Reader) (err error) {
 }
 
 type basicRecover struct {
-	Requeue bool
+	Requeue bool // false, 则重新发送给原来的消费者, true, 则会入队, 会发给其他消费者
 }
 
 func (msg *basicRecover) id() (uint16, uint16) {
@@ -2617,8 +2681,8 @@ func (msg *basicRecoverOk) read(r io.Reader) (err error) {
 
 type basicNack struct {
 	DeliveryTag uint64
-	Multiple    bool
-	Requeue     bool
+	Multiple    bool // ??
+	Requeue     bool // ??
 }
 
 func (msg *basicNack) id() (uint16, uint16) {
@@ -2794,7 +2858,7 @@ func (msg *txRollbackOk) read(r io.Reader) (err error) {
 }
 
 type confirmSelect struct {
-	Nowait bool
+	Nowait bool // 不等待服务器响应
 }
 
 func (msg *confirmSelect) id() (uint16, uint16) {
