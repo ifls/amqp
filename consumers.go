@@ -32,7 +32,7 @@ func commandNameBasedUniqueConsumerTag(commandName string) string {
 	return tagPrefix + tagInfix + tagSuffix
 }
 
-type consumerBuffers map[string]chan *Delivery
+type consumerBuffers map[string]chan *Delivery // consumerTag -> 队列
 
 // Concurrent type that manages the consumerTag ->
 // ingress consumerBuffer mapping
@@ -67,14 +67,14 @@ func (subs *consumers) buffer(in chan *Delivery, out chan Delivery) {
 				// closed before drained, drop in-flight
 				return
 
-			case delivery, consuming := <-inflight:
+			case delivery, consuming := <-inflight: // in 入
 				if consuming {
 					queue = append(queue, delivery)
 				} else {
 					inflight = nil
 				}
 
-			case out <- *queue[0]:
+			case out <- *queue[0]: // 出
 				queue = queue[1:]
 			}
 		}
@@ -86,6 +86,7 @@ func (subs *consumers) add(tag string, consumer chan Delivery) {
 	subs.Lock()
 	defer subs.Unlock()
 
+	// 关闭旧的
 	if prev, found := subs.chans[tag]; found {
 		close(prev)
 	}
@@ -94,6 +95,7 @@ func (subs *consumers) add(tag string, consumer chan Delivery) {
 	subs.chans[tag] = in
 
 	subs.Add(1)
+	// in, out
 	go subs.buffer(in, consumer)
 }
 
@@ -135,7 +137,7 @@ func (subs *consumers) send(tag string, msg *Delivery) bool {
 
 	buffer, found := subs.chans[tag]
 	if found {
-		buffer <- msg
+		buffer <- msg // 发到input, 由buffer转到out
 	}
 
 	return found
