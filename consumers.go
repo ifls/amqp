@@ -40,8 +40,8 @@ type consumers struct {
 	sync.WaitGroup               // one for buffer
 	closed         chan struct{} // signal buffer
 
-	sync.Mutex // protects below
-	chans      consumerBuffers
+	sync.Mutex                 // protects below
+	chans      consumerBuffers // map[string]chan *Delivery
 }
 
 func makeConsumers() *consumers {
@@ -82,6 +82,7 @@ func (subs *consumers) buffer(in chan *Delivery, out chan Delivery) {
 }
 
 // On key conflict, close the previous channel.
+// consumer 是出口
 func (subs *consumers) add(tag string, consumer chan Delivery) {
 	subs.Lock()
 	defer subs.Unlock()
@@ -95,7 +96,7 @@ func (subs *consumers) add(tag string, consumer chan Delivery) {
 	subs.chans[tag] = in
 
 	subs.Add(1)
-	// in, out
+	// in -> out
 	go subs.buffer(in, consumer)
 }
 

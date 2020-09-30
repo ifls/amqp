@@ -31,10 +31,10 @@ type Channel struct {
 
 	connection *Connection
 
-	rpc       chan message
-	consumers *consumers // 消费者
+	rpc       chan message //
+	consumers *consumers   // 消费者
 
-	id uint16
+	id uint16 // channel 的id
 
 	// closed is set to 1 when the channel has been closed - see Channel.send()
 	closed int32 // 标记关闭, 原子操作
@@ -190,6 +190,7 @@ func (ch *Channel) call(req message, res ...message) error {
 						// *res = *msg
 						vres := reflect.ValueOf(try).Elem()
 						vmsg := reflect.ValueOf(msg).Elem()
+						// 反射填充值
 						vres.Set(vmsg)
 						return nil
 					}
@@ -342,7 +343,7 @@ func (ch *Channel) dispatch(msg message) {
 		// TODO log failed consumer and close channel, this can happen when
 		// deliveries are in flight and a no-wait cancel has happened
 
-	default: // 自由处理
+	default: // 自由处理, 阻塞请求 wait() == true , 会读取响应
 		ch.rpc <- msg
 	}
 }
