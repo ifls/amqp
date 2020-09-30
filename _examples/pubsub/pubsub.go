@@ -43,6 +43,7 @@ func (s session) Close() error {
 }
 
 // redial continually connects to the URL, exiting the program when no longer possible
+// 用于不断重连
 func redial(ctx context.Context, url string) chan chan session {
 	sessions := make(chan chan session)
 
@@ -95,6 +96,7 @@ func publish(sessions chan chan session, messages <-chan message) {
 			confirm = make(chan amqp.Confirmation, 1)
 		)
 
+		// 一个connection
 		pub := <-session
 
 		// publisher confirms for this channel/connection
@@ -118,6 +120,7 @@ func publish(sessions chan chan session, messages <-chan message) {
 				if !confirmed.Ack {
 					log.Printf("nack message %d, body: %q", confirmed.DeliveryTag, string(body))
 				}
+				// 确认后, 才读取下一个
 				reading = messages
 
 			case body = <-pending:
@@ -127,6 +130,7 @@ func publish(sessions chan chan session, messages <-chan message) {
 				})
 				// Retry failed delivery on the next session
 				if err != nil {
+					// 重连, 重新发布
 					pending <- body
 					pub.Close()
 					break Publish
@@ -189,8 +193,7 @@ func subscribe(sessions chan chan session, messages chan<- message) {
 	}
 }
 
-// read is this application's translation to the message format, scanning from
-// stdin.
+// read is this application's translation to the message format, scanning from stdin.
 func read(r io.Reader) <-chan message {
 	lines := make(chan message)
 	go func() {
@@ -203,8 +206,7 @@ func read(r io.Reader) <-chan message {
 	return lines
 }
 
-// write is this application's subscriber of application messages, printing to
-// stdout.
+// write is this application's subscriber of application messages, printing to stdout.
 func write(w io.Writer) chan<- message {
 	lines := make(chan message)
 	go func() {

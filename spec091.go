@@ -1343,7 +1343,7 @@ type queueDeclare struct {
 	Passive    bool   // 不创建队列
 	Durable    bool   // 创建持久队列
 	Exclusive  bool   // 只能由当前连接访问, 连接中断, 队列就删除了
-	AutoDelete bool   // 没有用了就自动删除
+	AutoDelete bool   // 所有消费者结束使用了就自动删除此队列
 	NoWait     bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
 	Arguments  Table  // 额外参数, 取决于服务器实现
 }
