@@ -89,14 +89,14 @@ func (e Error) Error() string {
 
 // Used by header frames to capture routing and header information
 type properties struct {
-	ContentType     string    // MIME content type
-	ContentEncoding string    // MIME content encoding
+	ContentType     string    // MIME content type application/json
+	ContentEncoding string    // MIME content encoding utf-8
 	Headers         Table     // Application or header exchange table
 	DeliveryMode    uint8     // queue implementation use - Transient (1) or Persistent (2)
-	Priority        uint8     // queue implementation use - 0 to 9
-	CorrelationId   string    // application use - correlation identifier
+	Priority        uint8     // queue implementation use - 0 to 9 默认是0, 优先级高发送越快
+	CorrelationId   string    // application use - correlation identifier (ex: RPC)
 	ReplyTo         string    // application use - address to to reply to (ex: RPC)
-	Expiration      string    // implementation use - message expiration spec
+	Expiration      string    // implementation use - message expiration spec 过期
 	MessageId       string    // application use - message identifier
 	Timestamp       time.Time // application use - message timestamp
 	Type            string    // application use - message type name
@@ -180,7 +180,7 @@ type Publishing struct {
 // resources are reclaimed.
 // Use NotifyBlock on the Connection to receive these events.
 type Blocking struct {
-	Active bool   // TCP pushback回推 active/inactive on server
+	Active bool   // TCP 服务器pushback回推 active阻塞/inactive非阻塞 on server
 	Reason string // Server reason for activation
 }
 

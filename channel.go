@@ -54,7 +54,7 @@ type Channel struct {
 	returns []chan Return
 
 	// Listeners for when the server notifies the client that a consumer has been cancelled.
-	cancels []chan string
+	cancels []chan string // string 是consumerTag
 
 	// Allocated when in confirm mode in order to track publish counter and order confirms
 	confirms   *confirms
@@ -64,7 +64,7 @@ type Channel struct {
 	errors chan *Error
 
 	// State machine that manages frame order, must only be mutated变化 by the connection
-	recv func(*Channel, frame) error // 接收从服务器发来的帧, 分发到指定channel
+	recv func(*Channel, frame) error // 接收从服务器发来的帧, 分发到指定channel, // 会被动态切换为方法,头,body
 
 	// Current state for frame re-assembly, only mutated from recv
 	message messageWithContent
@@ -80,7 +80,7 @@ func newChannel(c *Connection, id uint16) *Channel {
 		rpc:        make(chan message),
 		consumers:  makeConsumers(),
 		confirms:   newConfirms(),
-		recv:       (*Channel).recvMethod,
+		recv:       (*Channel).recvMethod, // 会被动态切换
 		errors:     make(chan *Error, 1),
 	}
 }
@@ -152,6 +152,7 @@ func (ch *Channel) shutdown(e *Error) {
 //
 // After the channel has been closed, send calls Channel.sendClosed(), ensuring
 // only 'channel.close' is sent to the server.
+// channel 级 请求发送总入口
 func (ch *Channel) send(msg message) (err error) {
 	// If the channel is closed, use Channel.sendClosed()
 	if atomic.LoadInt32(&ch.closed) == 1 {
@@ -167,6 +168,7 @@ func (ch *Channel) open() error {
 }
 
 // Performs a request/response call for when the message is not NoWait and is specified as Synchronous.
+// get 可能会返回 getok, 或者getempty 两种返回, 所以res 是 ...
 func (ch *Channel) call(req message, res ...message) error {
 	if err := ch.send(req); err != nil {
 		return err
@@ -218,7 +220,7 @@ func (ch *Channel) sendClosed(msg message) (err error) {
 	return ErrClosed
 }
 
-// 发送请求
+// channel级, 请求入口 发送请求
 func (ch *Channel) sendOpen(msg message) (err error) {
 	if content, ok := msg.(messageWithContent); ok {
 		props, body := content.getContent()
@@ -281,6 +283,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 
 // Eventually called via the state machine from the connection's reader
 // goroutine, so assumes serialized access.
+// 方法帧, 头帧, body帧 会调用此方法分发收到的包
 func (ch *Channel) dispatch(msg message) {
 	switch m := msg.(type) {
 	case *channelClose:
@@ -292,7 +295,7 @@ func (ch *Channel) dispatch(msg message) {
 		ch.m.Unlock()
 		ch.connection.closeChannel(ch, newError(m.ReplyCode, m.ReplyText))
 
-	case *channelFlow:
+	case *channelFlow: // 流控只是通知机制?
 		ch.notifyM.RLock()
 		for _, c := range ch.flows {
 			c <- m.Active
@@ -300,7 +303,7 @@ func (ch *Channel) dispatch(msg message) {
 		ch.notifyM.RUnlock()
 		ch.send(&channelFlowOk{Active: m.Active})
 
-	case *basicCancel:
+	case *basicCancel: // 服务器主动通知消费者被取消
 		ch.notifyM.RLock()
 		for _, c := range ch.cancels {
 			c <- m.ConsumerTag
@@ -308,7 +311,7 @@ func (ch *Channel) dispatch(msg message) {
 		ch.notifyM.RUnlock()
 		ch.consumers.cancel(m.ConsumerTag)
 
-	case *basicReturn:
+	case *basicReturn: // 服务器无法处理消息, 被退回
 		ret := newReturn(*m)
 		ch.notifyM.RLock()
 		for _, c := range ch.returns {
@@ -316,7 +319,7 @@ func (ch *Channel) dispatch(msg message) {
 		}
 		ch.notifyM.RUnlock()
 
-	case *basicAck:
+	case *basicAck: // 发布确认
 		if ch.confirming {
 			if m.Multiple {
 				ch.confirms.Multiple(Confirmation{m.DeliveryTag, true})
@@ -325,7 +328,7 @@ func (ch *Channel) dispatch(msg message) {
 			}
 		}
 
-	case *basicNack:
+	case *basicNack: // 发布不确认
 		if ch.confirming {
 			if m.Multiple {
 				ch.confirms.Multiple(Confirmation{m.DeliveryTag, false})
@@ -503,7 +506,7 @@ desire to interleave consumers and producers in the same process to avoid your
 basic.ack messages from getting rate limited with your basic.publish messages.
 
 */
-// flow到底是什么?
+// flow 是 流量控制 , 避免过载
 func (ch *Channel) NotifyFlow(c chan bool) chan bool {
 	ch.notifyM.Lock()
 	defer ch.notifyM.Unlock()
@@ -544,6 +547,7 @@ NotifyCancel registers a listener for basic.cancel methods.  These can be sent
 from the server when a queue is deleted or when consuming from a mirrored queue
 where the master has just failed (and was moved to another node).
 监听 basic.cancel
+// rabbitmq 对 amqp 的拓展, 除了客户端的主动cancel, 服务器端, 队列被删除, 节点失败, 也会导致消费者被取消, rabbitmq会拓展通知客户端consumer被取消了
 The subscription tag is returned to the listener.
 
 */
@@ -566,7 +570,7 @@ ordered Ack and Nack DeliveryTag to the respective channels.
 
 For strict ordering, use NotifyPublish instead.
 */
-// 封装了NotifyPublish
+// 封装了NotifyPublish, 将ack流和nack分开处理, 只处理deliveryTag
 func (ch *Channel) NotifyConfirm(ack, nack chan uint64) (chan uint64, chan uint64) {
 	confirms := ch.NotifyPublish(make(chan Confirmation, cap(ack)+cap(nack)))
 
@@ -803,11 +807,11 @@ except that it sets the "passive" attribute to true.
 
 A passive queue is assumed by RabbitMQ to already exist, and attempting to connect to a
 non-existent queue will cause RabbitMQ to throw an exception.
-This function can be used to test for the existence of a queue.
+This function can be used to test for the existence of a queue. 测试队列是否存在
 
 */
 
-// passive 是有什么区别???
+// passive = true 表示不创建
 func (ch *Channel) QueueDeclarePassive(name string, durable, autoDelete, exclusive, noWait bool, args Table) (Queue, error) {
 	if err := args.Validate(); err != nil {
 		return Queue{}, err
@@ -841,7 +845,7 @@ func (ch *Channel) QueueDeclarePassive(name string, durable, autoDelete, exclusi
 
 /*
 QueueInspect passively declares a queue 声明了一个队列 by name to inspect the current message
-count and consumer count.
+count and consumer count. 查看消息数量和消费者数量,
 
 Use this method to check how many messages ready for delivery reside in the queue,
 how many consumers are receiving deliveries, and whether a queue by this
@@ -851,7 +855,7 @@ If the queue by this name exists, use Channel.QueueDeclare check if it is
 declared with specific parameters.
 
 If a queue by this name does not exist, an error will be returned and the
-channel will be closed. 队列不存在, 会返回错误,而不是声明
+channel will be closed. 队列不存在, 会返回错误, channel会关闭
 
 */
 func (ch *Channel) QueueInspect(name string) (Queue, error) {
@@ -1379,6 +1383,7 @@ func (ch *Channel) Publish(exchange, key string, mandatory, immediate bool, msg 
 		return err
 	}
 
+	// published++
 	if ch.confirming {
 		ch.confirms.Publish()
 	}
@@ -1527,6 +1532,7 @@ exception could occur if the server does not support this method.
 开启确认
 */
 func (ch *Channel) Confirm(noWait bool) error {
+	// 开启confirm
 	if err := ch.call(
 		&confirmSelect{Nowait: noWait},
 		&confirmSelectOk{},
@@ -1535,6 +1541,7 @@ func (ch *Channel) Confirm(noWait bool) error {
 	}
 
 	ch.confirmM.Lock()
+	// 标记已开启
 	ch.confirming = true
 	ch.confirmM.Unlock()
 
@@ -1543,7 +1550,7 @@ func (ch *Channel) Confirm(noWait bool) error {
 
 /*
 Recover redelivers all unacknowledged deliveries on this channel.
-重新投递
+重新投递未确认的消息
 When requeue is false, messages will be redelivered to the original consumer.
 
 When requeue is true, messages will be redelivered to any available consumer,

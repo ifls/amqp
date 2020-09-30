@@ -241,6 +241,7 @@ func Open(conn io.ReadWriteCloser, config Config) (*Connection, error) {
 	}
 	// 读取mq服务器数据
 	go c.reader(conn)
+	// open进行开始的连接握手协商
 	return c, c.open(config)
 }
 
@@ -366,13 +367,14 @@ func (c *Connection) IsClosed() bool {
 	return atomic.LoadInt32(&c.closed) == 1
 }
 
-// 发送帧 总入库
+// 发送帧 总入口
 func (c *Connection) send(f frame) error {
 	if c.IsClosed() {
 		return ErrClosed
 	}
 
 	c.sendM.Lock()
+	// 写入Conn缓冲, 并发送
 	err := c.writer.WriteFrame(f)
 	c.sendM.Unlock()
 
@@ -450,18 +452,19 @@ func (c *Connection) demux(f frame) {
 	}
 }
 
-// 连接级别
+// 处理Connection级别的方法调用和帧
 func (c *Connection) dispatch0(f frame) {
 	switch mf := f.(type) {
 	case *methodFrame: // 方法帧
 		switch m := mf.Method.(type) {
 		case *connectionClose:
 			// Send immediately as shutdown will close our side of the writer.
+			// 发送关闭确认
 			c.send(&methodFrame{
 				ChannelId: 0,
 				Method:    &connectionCloseOk{},
 			})
-
+			// 然后关闭连接
 			c.shutdown(newError(m.ReplyCode, m.ReplyText))
 		case *connectionBlocked:
 			for _, c := range c.blocks {
@@ -490,10 +493,9 @@ func (c *Connection) dispatchN(f frame) {
 	c.m.Unlock()
 
 	if channel != nil {
-		// 分发到 channel 里
+		// 分发到某个channel里
 		channel.recv(channel, f)
-	} else {
-		// 一个不存在的 channel
+	} else { // 找不到指定channel
 		c.dispatchClosed(f)
 	}
 }
@@ -530,7 +532,7 @@ func (c *Connection) dispatchClosed(f frame) {
 // Reads each frame off the IO and hand off to the connection object that
 // will demux the streams and dispatch to one of the opened channels or
 // handle on channel 0 (the connection channel).
-func (c *Connection) reader(r io.Reader) {
+func (c *Connection) reader(r io.Reader) { // r 就是 net.Conn
 	if _, ok := r.(*FakerReader); !ok {
 		r = &FakerReader{r}
 	}
@@ -547,7 +549,7 @@ func (c *Connection) reader(r io.Reader) {
 			return
 		}
 
-		// 多channel复用
+		// connection(channelID=0)和 多channel复用
 		c.demux(frame)
 
 		if haveDeadliner {
@@ -647,11 +649,13 @@ func (c *Connection) releaseChannel(id uint16) {
 
 // openChannel allocates and opens a channel, must be paired with closeChannel
 func (c *Connection) openChannel() (*Channel, error) {
+	// 分配channel对象
 	ch, err := c.allocateChannel()
 	if err != nil {
 		return nil, err
 	}
 
+	// 请求服务器打开一个channel
 	if err := ch.open(); err != nil {
 		c.releaseChannel(ch.id)
 		return nil, err

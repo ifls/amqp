@@ -756,8 +756,8 @@ func (c Publishing) Generate(r *rand.Rand, _ int) reflect.Value {
 	var t reflect.Value
 
 	p := Publishing{}
-	//p.DeliveryMode = uint8(r.Intn(3))
-	//p.Priority = uint8(r.Intn(8))
+	// p.DeliveryMode = uint8(r.Intn(3))
+	// p.Priority = uint8(r.Intn(8))
 
 	if r.Intn(2) > 0 {
 		p.ContentType = "application/octet-stream"
@@ -1262,7 +1262,7 @@ func TestDeclareArgsXMessageTTL(t *testing.T) {
 		defer conn.Close()
 
 		ch, _ := conn.Channel()
-		args := Table{"x-message-ttl": int32(9000000)}
+		args := Table{"x-message-ttl": int32(9000000)} // 指定 消息的 ttl
 
 		// should not drop the connection
 		if _, err := ch.QueueDeclare("declareWithTTL", false, true, false, false, args); err != nil {
@@ -1302,7 +1302,7 @@ func TestDeclareArgsRejectToDeadLetterQueue(t *testing.T) {
 		}
 
 		if _, err := ch.QueueDeclare(q, false, true, false, false, Table{
-			"x-dead-letter-exchange": dlex,
+			"x-dead-letter-exchange": dlex, // 指定死信队列
 		}); err != nil {
 			t.Fatalf("cannot declare %v with dlq %v: got: %v", q, dlex, err)
 		}

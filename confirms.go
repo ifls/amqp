@@ -6,10 +6,10 @@ import "sync"
 // confirms resequences and notifies one or multiple publisher confirmation listeners
 type confirms struct {
 	m         sync.Mutex
-	listeners []chan Confirmation
+	listeners []chan Confirmation     // 收到confirm 通知外部
 	sequencer map[uint64]Confirmation // deliveryTag,
-	published uint64
-	expecting uint64 // 表示下一个要确认的id
+	published uint64                  // [expecting, published]
+	expecting uint64                  // 表示下一个要确认的id
 }
 
 // newConfirms allocates a confirms
@@ -51,7 +51,7 @@ func (c *confirms) confirm(confirmation Confirmation) {
 }
 
 // resequence confirms any out of order delivered confirmations
-// 把之前的连续确认的, 都确认掉, 因为只是打了标记
+// 把之前的确认连续的, 都确认掉
 func (c *confirms) resequence() {
 	for c.expecting <= c.published {
 		sequenced, found := c.sequencer[c.expecting]
@@ -83,7 +83,7 @@ func (c *confirms) Multiple(confirmed Confirmation) {
 	c.m.Lock()
 	defer c.m.Unlock()
 
-	for c.expecting <= confirmed.DeliveryTag { // 确认所有之前的
+	for c.expecting <= confirmed.DeliveryTag { // 直接确认所有之前的
 		c.confirm(Confirmation{c.expecting, confirmed.Ack})
 	}
 	c.resequence()

@@ -25,6 +25,7 @@ func init() {
 }
 
 func main() {
+	*uri = "amqp://ivmservice:Ivscloud@123@100.94.63.0:5672/"
 	if err := publish(*uri, *exchangeName, *exchangeType, *routingKey, *body, *reliable); err != nil {
 		log.Fatalf("%s", err)
 	}
@@ -67,6 +68,7 @@ func publish(amqpURI, exchange, exchangeType, routingKey, body string, reliable 
 	// connection.
 	if reliable {
 		log.Printf("enabling publishing confirms.")
+		// 开启确认模式
 		if err := channel.Confirm(false); err != nil {
 			return fmt.Errorf("Channel could not be put into confirm mode: %s", err)
 		}

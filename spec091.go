@@ -90,6 +90,9 @@ func init() {
 	// S->C 通知客户端 channel可用
 	methodMap["channelOpenOk"] = 20<<8 + 11
 
+	// 流控双方都可以发, 服务器限制客户端发布速度, 或者客户端限制服务器consume后的deliver推送
+	// 流控启用时, 这个Connection的状态每秒在blocked和unblocked之间来回切换数次，这样可以将消息发送的速率控制在服务器能够支撑的范围之内。
+	// 客户端应该主动减少发布速度, 流控设置active=false才开启流量控制, 服务器如果不支持, 会返回504, 未实现
 	// C->S or S->C 通知对端停止或者重启  流空, 避免过量, 不影响get获取, 只影响consumer和publish
 	methodMap["channelFlow"] = 20<<8 + 20 // 15
 	// C->S or S->C 向对方确认 已收到或者已处理
@@ -181,7 +184,7 @@ func init() {
 	// S->C 响应无消息
 	methodMap["basicGetEmpty"] = 60<<8 + 72
 
-	// C->S 确认消费
+	// C->S 确认消费, rabbitmq 拓展, S->C 发送发布确认
 	methodMap["basicAck"] = 60<<8 + 80
 
 	// C->S 拒绝消费
@@ -214,7 +217,7 @@ func init() {
 	// S->C 确认rollback成功, 如果rollback失败, 服务器触发一个channel级的异常
 	methodMap["txRollbackOk"] = 90<<8 + 31 // 60
 
-	// confirm 进入确认模式, 服务器必须确认收到的所有消息
+	// confirm 进入发布确认模式(与事务模式无法并存), 服务器必须确认收到的所有消息
 	// C->S rabbitmq 实现的 amqp0-9-1规范的拓展 https://www.rabbitmq.com/extensions.html
 	methodMap["confirmSelect"] = 85<<8 + 10
 	methodMap["confirmSelectOk"] = 85<<8 + 11
@@ -789,7 +792,7 @@ func (msg *channelOpenOk) read(r io.Reader) (err error) {
 }
 
 type channelFlow struct {
-	Active bool // 重启或停止
+	Active bool // true 表示, 开始发送. false表示停止发送
 }
 
 func (msg *channelFlow) id() (uint16, uint16) {
@@ -1912,11 +1915,11 @@ type basicConsume struct {
 	reserved1   uint16
 	Queue       string // 队列名
 	ConsumerTag string // 指定消费者标志, 只属于channel级别, 如果为"", 服务器会生成一个tag
-	NoLocal     bool   // 不会发送回给此连接上的所有channel, 也就是不会转回来 https://www.rabbitmq.com/amqp-0-9-1-reference.html#domain.
+	NoLocal     bool   // 不会发送回给此连接上, 包括所有的channel, 也就是不会转回来 https://www.rabbitmq.com/amqp-0-9-1-reference.html#domain.
 	// no-local
-	NoAck     bool // 不需要ack,reject,nack 之类的回复
+	NoAck     bool // 告诉服务器不需要等待ack,reject,nack 之类的回复
 	Exclusive bool // 消费的排他性, 只有此消费者, 能访问此服务
-	NoWait    bool //
+	NoWait    bool // 服务器不会发送请求的响应, 有异常
 	Arguments Table
 }
 
@@ -2187,8 +2190,8 @@ type basicReturn struct {
 	ReplyText  string
 	Exchange   string
 	RoutingKey string
-	Properties properties
-	Body       []byte // 消息
+	Properties properties // 属性也会一并return
+	Body       []byte     // 消息
 }
 
 func (msg *basicReturn) id() (uint16, uint16) {
@@ -2247,7 +2250,7 @@ func (msg *basicReturn) read(r io.Reader) (err error) {
 
 type basicDeliver struct {
 	ConsumerTag string
-	DeliveryTag uint64 // 服务器指定的, channel特定的, 不能用0值, 0保留客户端使用, 表示到目前为止收到的所有消息
+	DeliveryTag uint64 // 服务器指定的, channel特定的, 不能用0值, 0保留客户端ack,reject,nack使用, 表示到目前为止收到的所有消息
 	Redelivered bool   // 之前是否会发送到这个或者其他客户端
 	Exchange    string
 	RoutingKey  string
@@ -2329,7 +2332,7 @@ func (msg *basicDeliver) read(r io.Reader) (err error) {
 type basicGet struct {
 	reserved1 uint16
 	Queue     string
-	NoAck     bool // 不进行ack流程
+	NoAck     bool // 不进行ack流程 告诉服务器不需要等待ack,reject,nack 之类的回复
 }
 
 func (msg *basicGet) id() (uint16, uint16) {
@@ -2386,8 +2389,8 @@ type basicGetOk struct {
 	Redelivered  bool   // 重递送
 	Exchange     string
 	RoutingKey   string
-	MessageCount uint32 // 队列里的消息数量
-	Properties   properties
+	MessageCount uint32     // 队列里的消息数量
+	Properties   properties // 消息属性
 	Body         []byte
 }
 
@@ -2493,8 +2496,8 @@ func (msg *basicGetEmpty) read(r io.Reader) (err error) {
 }
 
 type basicAck struct {
-	DeliveryTag uint64
-	Multiple    bool // 确认之前到现在的多个消息
+	DeliveryTag uint64 // 0表示到目前为止收到的所有消息
+	Multiple    bool   // 确认之前到现在的多个消息
 }
 
 func (msg *basicAck) id() (uint16, uint16) {
@@ -2681,8 +2684,8 @@ func (msg *basicRecoverOk) read(r io.Reader) (err error) {
 
 type basicNack struct {
 	DeliveryTag uint64
-	Multiple    bool // ??
-	Requeue     bool // ??
+	Multiple    bool //
+	Requeue     bool // 重新入队, 以便投递给其他消费者, 如果, 入队失败或者是false, 会到死信队列, or 直接丢弃
 }
 
 func (msg *basicNack) id() (uint16, uint16) {
