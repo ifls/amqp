@@ -168,7 +168,7 @@ func DialTLS(url string, amqps *tls.Config) (*Connection, error) {
 // DialConfig accepts a string in the AMQP URI format and a configuration for
 // the transport and connection setup, returning a new Connection.  Defaults to
 // a server heartbeat interval of 10 seconds and sets the initial read deadline
-// to 30 seconds.
+// to 30 seconds. 拨号连接的总入口
 func DialConfig(url string, config Config) (*Connection, error) {
 	var err error
 	var conn net.Conn

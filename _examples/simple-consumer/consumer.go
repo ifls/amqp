@@ -7,9 +7,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/streadway/amqp"
 	"log"
 	"time"
+
+	"github.com/pkg/errors"
+
+	"github.com/streadway/amqp"
 )
 
 var (
@@ -139,19 +142,15 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string) (
 }
 
 func (c *Consumer) Shutdown() error {
-	// will close() the deliveries channel
 	if err := c.channel.Cancel(c.tag, true); err != nil {
-		return fmt.Errorf("Consumer cancel failed: %s", err)
+		return errors.Wrapf(err, "Consumer cancel")
 	}
 
 	if err := c.conn.Close(); err != nil {
-		return fmt.Errorf("AMQP connection close error: %s", err)
+		return errors.Wrap(err, "AMQP connection close")
 	}
 
-	defer log.Printf("AMQP shutdown OK")
-
-	// wait for handle() to exit
-	return <-c.done
+	return nil
 }
 
 func handle(deliveries <-chan amqp.Delivery, done chan error) {

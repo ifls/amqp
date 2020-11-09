@@ -140,7 +140,7 @@ func init() {
 	// S->C 确认解除绑定成功
 	methodMap["queueUnbindOk"] = 50<<8 + 51
 
-	// C->S 删除所有非等待消费确认的消息, 此队列, 正在消费的不能删除
+	// C->S 删除所有非等待消费确认的消息, 此队列中 正在消费的消息不能删除
 	methodMap["queuePurge"] = 50<<8 + 30
 	// S->C 确认删除成功
 	methodMap["queuePurgeOk"] = 50<<8 + 31
