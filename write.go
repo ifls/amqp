@@ -18,7 +18,12 @@ import (
 	"time"
 )
 
+var printFlags = false
+
 func printBytes(prefix string, p []byte) {
+	if !printFlags {
+		return
+	}
 	if prefix == "<-read" {
 		p = trimBytes(p)
 	}
@@ -33,6 +38,9 @@ func printBytes(prefix string, p []byte) {
 }
 
 func printBytess(prefix string, ps ...[]byte) {
+	if !printFlags {
+		return
+	}
 	s := prefix
 	for _, p := range ps {
 		if prefix == "<-read" {
@@ -50,6 +58,9 @@ func printBytess(prefix string, ps ...[]byte) {
 }
 
 func printMethodFrame(mf *methodFrame) {
+	if !printFlags {
+		return
+	}
 	mf.ClassId, mf.MethodId = mf.Method.id()
 	bts, err := json.MarshalIndent(mf, "", "  ")
 	if err != nil {
@@ -59,6 +70,9 @@ func printMethodFrame(mf *methodFrame) {
 }
 
 func printFrame(prefix string, mf frame) {
+	if !printFlags {
+		return
+	}
 	bts, err := json.MarshalIndent(mf, "", "  ")
 	if err != nil {
 		log.Fatal(err)
@@ -67,6 +81,9 @@ func printFrame(prefix string, mf frame) {
 }
 
 func printHeaderFrame(mf *headerFrame) {
+	if !printFlags {
+		return
+	}
 	bts, err := json.MarshalIndent(mf, "", "  ")
 	if err != nil {
 		log.Fatal(err)
@@ -75,6 +92,9 @@ func printHeaderFrame(mf *headerFrame) {
 }
 
 func printBodyFrame(mf *bodyFrame) {
+	if !printFlags {
+		return
+	}
 	bts, err := json.MarshalIndent(mf, "", "  ")
 	if err != nil {
 		log.Fatal(err)

@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"io"
-	"log"
 	"net"
 	"reflect"
 	"strconv"
@@ -487,6 +486,7 @@ func (c *Connection) dispatch0(f frame) {
 	}
 }
 
+// 单goroutine 无须锁
 func (c *Connection) dispatchN(f frame) {
 	c.m.Lock()
 	channel := c.channels[f.channel()]
@@ -550,6 +550,7 @@ func (c *Connection) reader(r io.Reader) { // r 就是 net.Conn
 		}
 
 		// connection(channelID=0)和 多channel复用
+		// 单 goroutine 不用加锁
 		c.demux(frame)
 
 		if haveDeadliner {
@@ -731,7 +732,7 @@ func (c *Connection) open(config Config) error {
 	if err := c.send(mf); err != nil {
 		return err
 	}
-	log.Printf("->send\n protocolHeader %+v", *mf)
+	// log.Printf("->send\n protocolHeader %+v", *mf)
 	return c.openStart(config)
 }
 

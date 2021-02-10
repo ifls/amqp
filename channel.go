@@ -364,6 +364,7 @@ func (ch *Channel) recvMethod(f frame) error {
 			return ch.transition((*Channel).recvHeader)
 		}
 
+		// 派发消息
 		ch.dispatch(frame.Method) // termination state
 		return ch.transition((*Channel).recvMethod)
 
@@ -392,6 +393,8 @@ func (ch *Channel) recvHeader(f frame) error {
 
 		if frame.Size == 0 {
 			ch.message.setContent(ch.header.Properties, ch.body)
+
+			// 派发消息
 			ch.dispatch(ch.message) // termination state
 			return ch.transition((*Channel).recvMethod)
 		}
@@ -425,6 +428,8 @@ func (ch *Channel) recvContent(f frame) error {
 
 		if uint64(len(ch.body)) >= ch.header.Size {
 			ch.message.setContent(ch.header.Properties, ch.body)
+
+			// 最终派发消息
 			ch.dispatch(ch.message) // termination state
 			return ch.transition((*Channel).recvMethod)
 		}
@@ -866,6 +871,7 @@ func (ch *Channel) QueueInspect(name string) (Queue, error) {
 	}
 	res := &queueDeclareOk{}
 
+	// 必阻塞
 	err := ch.call(req, res)
 
 	state := Queue{

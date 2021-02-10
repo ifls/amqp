@@ -69,7 +69,7 @@ func init() {
 
 	// C->S 打开一个到虚拟节点的连接
 	methodMap["connectionOpen"] = 10<<8 + 40
-	// S->C 通知客户端 连接可用
+	// S->C 通知客户端 连接已处于可用状态
 	methodMap["connectionOpenOk"] = 10<<8 + 41
 
 	// C->S or S->C 表示想要关闭连接
@@ -793,6 +793,7 @@ func (msg *channelOpenOk) read(r io.Reader) (err error) {
 
 type channelFlow struct {
 	Active bool // true 表示, 开始发送. false表示停止发送
+	// active = false rabbitmq 服务器不支持, 通过qos 限制预取提供更好的控制
 }
 
 func (msg *channelFlow) id() (uint16, uint16) {
@@ -1337,12 +1338,14 @@ func (msg *exchangeUnbindOk) read(r io.Reader) (err error) {
 	return
 }
 
+// https://www.rabbitmq.com/queues.html
+// https://www.rabbitmq.com/queues.html#exclusive-queues
 type queueDeclare struct {
 	reserved1  uint16
 	Queue      string // 队列名
 	Passive    bool   // 不创建队列
 	Durable    bool   // 创建持久队列
-	Exclusive  bool   // 只能由当前连接访问, 连接中断, 队列就删除了
+	Exclusive  bool   // 只能由当前连接访问, 连接中断, 队列就删除了 true 表示排他队列, 只能被 declare 的连接使用, 连接断开, 队列就被删除, 只适用于 客户端特有的瞬间状态
 	AutoDelete bool   // 所有消费者结束使用了就自动删除此队列
 	NoWait     bool   // true, 表示不等待服务器回复, 服务器不会回复此请求, 如果服务器无法完成, 会抛出异常
 	Arguments  Table  // 额外参数, 取决于服务器实现
@@ -1835,10 +1838,11 @@ func (msg *queueDeleteOk) read(r io.Reader) (err error) {
 	return
 }
 
+// 参考 https://www.rabbitmq.com/consumer-prefetch.html
 type basicQos struct { // 当前只对服务器端有意义
-	PrefetchSize  uint32 // 预取窗口 字节数
+	PrefetchSize  uint32 // 预取窗口 字节数, rabbitmq 实现上不支持
 	PrefetchCount uint16 // 预取窗口 消息数
-	Global        bool   // 是否是全connection配置还是channel配置
+	Global        bool   // 是否是全connection配置还是channel配置, 对于rabbitmq, 含义不一样, false表示对每个消费者的限制, true表示对channel的限制
 }
 
 func (msg *basicQos) id() (uint16, uint16) {
@@ -1911,6 +1915,7 @@ func (msg *basicQosOk) read(r io.Reader) (err error) {
 	return
 }
 
+// https://www.rabbitmq.com/consumers.html#exclusivity
 type basicConsume struct {
 	reserved1   uint16
 	Queue       string // 队列名
@@ -1918,7 +1923,7 @@ type basicConsume struct {
 	NoLocal     bool   // 不会发送回给此连接上, 包括所有的channel, 也就是不会转回来 https://www.rabbitmq.com/amqp-0-9-1-reference.html#domain.
 	// no-local
 	NoAck     bool // 告诉服务器不需要等待ack,reject,nack 之类的回复
-	Exclusive bool // 消费的排他性, 只有此消费者, 能访问此服务
+	Exclusive bool // 消费的排他性, 只有此消费者, 能访问此服务, 其他消费者, 必须等这个消费者被取消或者死亡, 才能再注册消费, 如果还需要连续性 需要使用 单一活跃者特性
 	NoWait    bool // 服务器不会发送请求的响应, 有异常
 	Arguments Table
 }

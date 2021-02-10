@@ -85,29 +85,29 @@ func parseRead(p []byte) error {
 		log.Fatal(err)
 	}
 	bodyLength = int(length)
-	log.Printf("<-parseRead header type=%d, channelID=%d, length=%d\n", typ, channelID, bodyLength)
+	// log.Printf("<-parseRead header type=%d, channelID=%d, length=%d\n", typ, channelID, bodyLength)
 
 	switch typ {
 	case frameBody:
 		var bf bodyFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("<-parseRead bodyFrame = %+v\n", bf)
+		// log.Printf("<-parseRead bodyFrame = %+v\n", bf)
 	case frameHeader:
 		var bf headerFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("<-parseRead headerFrame = %+v\n", bf)
+		// log.Printf("<-parseRead headerFrame = %+v\n", bf)
 	case frameMethod:
 		var bf methodFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("<-parseRead methodFrame = %+v\n", bf)
+		// log.Printf("<-parseRead methodFrame = %+v\n", bf)
 	case frameHeartbeat:
 		var bf heartbeatFrame
 		bf.ChannelId = channelID
 		bf.read(p[headerLength : headerLength+bodyLength]) // 最后一位是 0xce frameEnd
-		log.Printf("<-parseRead heartbeatFrame = %+v\n", bf)
+		// log.Printf("<-parseRead heartbeatFrame = %+v\n", bf)
 	}
 
 	return nil

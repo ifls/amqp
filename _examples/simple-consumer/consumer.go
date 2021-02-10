@@ -101,7 +101,7 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string) (
 		queueName, // name of the queue
 		true,      // durable
 		false,     // delete when unused
-		false,     // exclusive
+		false,     // exclusive true 表示排他队列, 只能被 declare 的连接使用, 连接断开, 队列就被删除, 只适用于 客户端特有的瞬间状态
 		false,     // noWait
 		nil,       // arguments
 	)
